@@ -21,5 +21,5 @@ export const DISCOVERY = {
 // On a real device we use the custom scheme instead.
 export const REDIRECT_URI =
   Platform.OS === 'web'
-    ? 'http://127.0.0.1:8081'
+    ? (typeof window !== 'undefined' ? window.location.origin : 'http://127.0.0.1:8081')
     : AuthSession.makeRedirectUri({ scheme: 'vinylapp', path: 'callback' });
