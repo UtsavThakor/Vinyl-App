@@ -1,5 +1,7 @@
-import { useEffect, useRef } from 'react';
-import { Dimensions, Image, PanResponder, StyleSheet, View } from 'react-native';
+import { useAuthRequest } from 'expo-auth-session';
+import * as WebBrowser from 'expo-web-browser';
+import { useEffect, useRef, useState } from 'react';
+import { Dimensions, Image, PanResponder, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -7,31 +9,111 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
+import { CLIENT_ID, DISCOVERY, REDIRECT_URI, SCOPES } from '../spotify';
+
+WebBrowser.maybeCompleteAuthSession();
 
 const { width, height } = Dimensions.get('window');
 
-// Size off the SMALLER dimension so the disc never overflows on any device
 const BASE = Math.min(width, height);
 const DISC_SIZE = BASE * 0.82;
-const ALBUM_SIZE = DISC_SIZE * 0.52;   // bigger album relative to disc (fix #5)
+const ALBUM_SIZE = DISC_SIZE * 0.52;
 const PEEK_HEIGHT = 36;
-const ALBUM_ART = 'https://picsum.photos/400/400';
+const FALLBACK_ART = 'https://picsum.photos/400/400';
 
-// Center the disc on screen, nudged slightly right to leave room for album (fix #1, #4, #7)
 const DISC_LEFT = (width - DISC_SIZE) / 2 + width * 0.05;
 const DISC_TOP = (height - DISC_SIZE) / 2;
-
-// Album sits at the same vertical center, overlapping the disc's left edge (fix #3, #4)
 const ALBUM_LEFT = DISC_LEFT - ALBUM_SIZE * 0.62;
 const ALBUM_TOP = DISC_TOP + DISC_SIZE / 2 - ALBUM_SIZE / 2;
 
-// Cover shares the disc's exact box, so translateY:0 locks perfectly onto it (fix #2)
 const LOCKED_Y = 0;
-const HIDDEN_Y = PEEK_HEIGHT - (DISC_TOP + DISC_SIZE);  // parked up top, only a clean arc peeks
+const HIDDEN_Y = PEEK_HEIGHT - (DISC_TOP + DISC_SIZE);
 
 const SOFT_EASING = Easing.bezier(0.16, 1, 0.3, 1);
 
 export default function VinylPlayer() {
+  const [token, setToken] = useState<string | null>(null);
+  const [albumArt, setAlbumArt] = useState<string>(FALLBACK_ART);
+
+  // Spotify auth request
+  const [request, response, promptAsync] = useAuthRequest(
+    {
+      clientId: CLIENT_ID,
+      scopes: SCOPES,
+      usePKCE: true,
+      redirectUri: REDIRECT_URI,
+    },
+    DISCOVERY
+  );
+
+  // When login succeeds, exchange the code for a token
+  useEffect(() => {
+    if (response?.type === 'success' && response.params.code && request?.codeVerifier) {
+      exchangeCodeForToken(response.params.code, request.codeVerifier);
+    }
+  }, [response]);
+
+  async function exchangeCodeForToken(code: string, verifier: string) {
+    try {
+      const body = new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: REDIRECT_URI,
+        client_id: CLIENT_ID,
+        code_verifier: verifier,
+      }).toString();
+
+      const res = await fetch(DISCOVERY.tokenEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+      });
+      const data = await res.json();
+      if (data.access_token) {
+        setToken(data.access_token);
+      } else {
+        console.log('Token error:', data);
+      }
+    } catch (e) {
+      console.log('Exchange error:', e);
+    }
+  }
+
+  // Poll the currently playing track every 3 seconds
+  useEffect(() => {
+    if (!token) return;
+    const fetchNowPlaying = async () => {
+      try {
+        const res = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.status === 200) {
+          const data = await res.json();
+          const art = data?.item?.album?.images?.[0]?.url;
+          if (art) setAlbumArt(art);
+        }
+      } catch (e) {
+        console.log('Now playing error:', e);
+      }
+    };
+    fetchNowPlaying();
+    const interval = setInterval(fetchNowPlaying, 3000);
+    return () => clearInterval(interval);
+  }, [token]);
+
+  // Send a playback command to Spotify
+  async function sendCommand(method: 'POST' | 'PUT', endpoint: string) {
+    if (!token) return;
+    try {
+      await fetch(`https://api.spotify.com/v1/me/player/${endpoint}`, {
+        method,
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch (e) {
+      console.log('Command error:', e);
+    }
+  }
+
   const rotation = useSharedValue(0);
   const coverY = useSharedValue(HIDDEN_Y);
   const isLooping = useRef(false);
@@ -74,14 +156,17 @@ export default function VinylPlayer() {
       onStartShouldSetPanResponder: () => true,
       onPanResponderRelease: (_, gesture) => {
         if (gesture.dx > 60) {
-          console.log('Next song');
+          // Swipe right — next song
+          sendCommand('POST', 'next');
         } else if (gesture.dx < -60) {
           const now = Date.now();
           if (lastSwipeLeft.current && now - lastSwipeLeft.current < 1500) {
-            console.log('Previous song');
+            // Double swipe left — previous song
+            sendCommand('POST', 'previous');
             lastSwipeLeft.current = null;
           } else {
-            console.log('Restart song');
+            // Single swipe left — restart current song (seek to 0)
+            sendCommand('PUT', 'seek?position_ms=0');
             lastSwipeLeft.current = now;
           }
         }
@@ -89,15 +174,30 @@ export default function VinylPlayer() {
     })
   ).current;
 
+  // ---- LOGIN SCREEN ----
+  if (!token) {
+    return (
+      <View style={styles.loginContainer}>
+        <Text style={styles.loginTitle}>Vinyl</Text>
+        <Pressable
+          style={styles.loginButton}
+          disabled={!request}
+          onPress={() => promptAsync()}
+        >
+          <Text style={styles.loginButtonText}>Connect Spotify</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  // ---- VINYL PLAYER ----
   return (
     <View style={styles.container}>
 
-      {/* Album art — behind the disc, tucked to the left */}
       <View style={styles.albumWrapper}>
-        <Image source={{ uri: ALBUM_ART }} style={styles.albumArt} />
+        <Image source={{ uri: albumArt }} style={styles.albumArt} />
       </View>
 
-      {/* Spinning disc — on top of album */}
       <Animated.View
         style={[styles.discWrapper, discAnimatedStyle]}
         {...discPanResponder.panHandlers}
@@ -119,13 +219,12 @@ export default function VinylPlayer() {
               />
             );
           })}
-          {/* Label + spindle hole (fix #6 — distinct from background) */}
-          <View style={styles.label} />
+          {/* Album art in the disc label area */}
+          <Image source={{ uri: albumArt }} style={styles.discLabel} />
           <View style={styles.centerHole} />
         </View>
       </Animated.View>
 
-      {/* Dark glass cover — parks up top, slides down to lock onto disc */}
       <Animated.View
         style={[styles.cover, coverAnimatedStyle]}
         {...coverPanResponder.panHandlers}
@@ -138,15 +237,39 @@ export default function VinylPlayer() {
 }
 
 const styles = StyleSheet.create({
+  loginContainer: {
+    flex: 1,
+    backgroundColor: '#16161f',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 40,
+  },
+  loginTitle: {
+    color: '#fff',
+    fontSize: 48,
+    fontWeight: 'bold',
+    letterSpacing: 2,
+  },
+  loginButton: {
+    backgroundColor: '#1DB954',
+    paddingVertical: 16,
+    paddingHorizontal: 40,
+    borderRadius: 30,
+  },
+  loginButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
   container: {
     flex: 1,
-    backgroundColor: '#16161f',   // slightly different from disc so they read separately
+    backgroundColor: '#16161f',
     overflow: 'hidden',
   },
   albumWrapper: {
     position: 'absolute',
-    left: ALBUM_LEFT,             // changed — anchored to disc center, overlaps left edge
-    top: ALBUM_TOP,               // changed — vertically aligned with disc center
+    left: ALBUM_LEFT,
+    top: ALBUM_TOP,
     zIndex: 1,
     transform: [{ rotate: '-6deg' }],
     shadowColor: '#000',
@@ -162,8 +285,8 @@ const styles = StyleSheet.create({
   },
   discWrapper: {
     position: 'absolute',
-    left: DISC_LEFT,              // changed — centered, fully visible
-    top: DISC_TOP,                // changed
+    left: DISC_LEFT,
+    top: DISC_TOP,
     width: DISC_SIZE,
     height: DISC_SIZE,
     borderRadius: DISC_SIZE / 2,
@@ -173,19 +296,18 @@ const styles = StyleSheet.create({
     width: DISC_SIZE,
     height: DISC_SIZE,
     borderRadius: DISC_SIZE / 2,
-    backgroundColor: '#070707',   // deep shiny black, distinct from bg
+    backgroundColor: '#070707',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 3,
     borderColor: '#2e2e2e',
     overflow: 'hidden',
   },
-  label: {                        // new — paper label area in the middle
+  discLabel: {
     position: 'absolute',
     width: DISC_SIZE * 0.30,
     height: DISC_SIZE * 0.30,
     borderRadius: DISC_SIZE * 0.15,
-    backgroundColor: '#23232e',
     zIndex: 4,
   },
   centerHole: {
@@ -193,15 +315,15 @@ const styles = StyleSheet.create({
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: '#0a0a0a',   // changed — dark hole, no longer matches bg
+    backgroundColor: '#0a0a0a',
     borderWidth: 2,
     borderColor: '#555',
     zIndex: 5,
   },
   cover: {
     position: 'absolute',
-    left: DISC_LEFT,              // changed — IDENTICAL box to disc so it locks exactly
-    top: DISC_TOP,                // changed
+    left: DISC_LEFT,
+    top: DISC_TOP,
     width: DISC_SIZE,
     height: DISC_SIZE,
     borderRadius: DISC_SIZE / 2,
