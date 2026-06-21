@@ -21,36 +21,38 @@ WebBrowser.maybeCompleteAuthSession();
 
 const { width, height } = Dimensions.get('window');
 
-const BASE = Math.min(width, height);
-const DISC_SIZE = BASE * 0.82;
-const ALBUM_SIZE = DISC_SIZE * 0.52;
+// --- Bigger disc that bleeds off the top-left (matches reference) ---
+const DISC_SIZE = Math.max(width, height) * 0.95;
+const ALBUM_SIZE = DISC_SIZE * 0.42;      // album art scaled up with the disc
 const PEEK_HEIGHT = 36;
 const COVER_SIZE = DISC_SIZE * 1.12;
 const FALLBACK_ART = 'https://picsum.photos/400/400';
 
-const DISC_LEFT = (width - DISC_SIZE) / 2 + width * 0.05;
-const DISC_TOP = (height - DISC_SIZE) / 2;
-const DISC_CENTER_X = DISC_LEFT + DISC_SIZE / 2;
-const DISC_CENTER_Y = DISC_TOP + DISC_SIZE / 2;
-const ALBUM_LEFT = DISC_LEFT - ALBUM_SIZE * 0.62;
-const ALBUM_TOP = DISC_TOP + DISC_SIZE / 2 - ALBUM_SIZE / 2;
+// Disc center pulled toward upper-left so it bleeds off the top + left edges
+const DISC_CENTER_X = width * 0.40;
+const DISC_CENTER_Y = height * 0.42;
+const DISC_LEFT = DISC_CENTER_X - DISC_SIZE / 2;
+const DISC_TOP = DISC_CENTER_Y - DISC_SIZE / 2;
 
-const COVER_LEFT = DISC_LEFT - (COVER_SIZE - DISC_SIZE) / 2;
-const COVER_TOP = DISC_TOP - (COVER_SIZE - DISC_SIZE) / 2;
+// Album art centered on the disc (same relationship as before, just bigger)
+const ALBUM_LEFT = DISC_CENTER_X - ALBUM_SIZE / 2;
+const ALBUM_TOP = DISC_CENTER_Y - ALBUM_SIZE / 2;
+
+// Cover shares the disc center, larger box, same slide behavior
+const COVER_LEFT = DISC_CENTER_X - COVER_SIZE / 2;
+const COVER_TOP = DISC_CENTER_Y - COVER_SIZE / 2;
 
 const LOCKED_Y = 0;
 const HIDDEN_Y = -(COVER_TOP + COVER_SIZE - PEEK_HEIGHT);
 
-// --- Tonearm geometry ---
-// Pivot lives off-screen, just past the top-right corner.
-const ARM_PIVOT_X = width + 40;
+// --- Tonearm geometry (top-right, my choice of placement) ---
+const ARM_PIVOT_X = width - 50;
 const ARM_PIVOT_Y = -40;
 const ARM_LENGTH =
   Math.hypot(DISC_CENTER_X - ARM_PIVOT_X, DISC_CENTER_Y - ARM_PIVOT_Y) * 0.74;
 const ARM_WIDTH = 14;
-// Angle (deg) the arm sits at when resting (off the disc) vs playing (needle near disc edge)
-const ARM_REST_DEG = 4;    // swung back toward the edge
-const ARM_PLAY_DEG = 17;   // swung in onto the playing surface
+const ARM_REST_DEG = 4;
+const ARM_PLAY_DEG = 17;
 
 const SOFT_EASING = Easing.bezier(0.16, 1, 0.3, 1);
 
@@ -260,7 +262,6 @@ export default function VinylPlayer() {
     transform: [{ translateY: coverY.value }],
   }));
 
-  // Arm rotates around its off-screen pivot
   const armAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${armAngle.value}deg` }],
   }));
@@ -347,8 +348,7 @@ export default function VinylPlayer() {
           <Image source={{ uri: albumArt }} style={styles.albumArt} />
         </View>
 
-        {/* Tonearm — pivots off-screen top-right, swings on when playing.
-            zIndex 5: above disc (2) + album (handled), below the loop cover (6). */}
+        {/* Tonearm */}
         <Animated.View style={[styles.armPivot, armAnimatedStyle]} pointerEvents="none">
           <View style={styles.armShaft} />
           <View style={styles.armHead}>
@@ -356,7 +356,7 @@ export default function VinylPlayer() {
           </View>
         </Animated.View>
 
-        {/* Dark glass cover — above the arm */}
+        {/* Cover */}
         <GestureDetector gesture={coverGesture}>
           <Animated.View style={[styles.cover, coverAnimatedStyle]}>
             <View style={styles.coverGlass} />
@@ -390,10 +390,9 @@ const styles = StyleSheet.create({
     left: ALBUM_LEFT,
     top: ALBUM_TOP,
     zIndex: 7,
-    transform: [{ rotate: '-6deg' }],
     boxShadow: '6px 10px 16px rgba(0,0,0,0.9)',
   },
-  albumArt: { width: ALBUM_SIZE, height: ALBUM_SIZE, borderRadius: 14 },
+  albumArt: { width: ALBUM_SIZE, height: ALBUM_SIZE, borderRadius: ALBUM_SIZE / 2 },
   discWrapper: {
     position: 'absolute',
     left: DISC_LEFT,
@@ -431,7 +430,6 @@ const styles = StyleSheet.create({
     borderColor: '#555',
     zIndex: 5,
   },
-  // Tonearm
   armPivot: {
     position: 'absolute',
     left: ARM_PIVOT_X,
@@ -439,7 +437,7 @@ const styles = StyleSheet.create({
     width: ARM_WIDTH,
     height: ARM_LENGTH,
     zIndex: 5,
-    transformOrigin: 'top center', // rotate around the off-screen pivot
+    transformOrigin: 'top center',
   },
   armShaft: {
     position: 'absolute',
@@ -462,12 +460,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-end',
   },
-  armNeedle: {
-    width: 3,
-    height: 10,
-    backgroundColor: '#bbb',
-    marginBottom: -6,
-  },
+  armNeedle: { width: 3, height: 10, backgroundColor: '#bbb', marginBottom: -6 },
   cover: {
     position: 'absolute',
     left: COVER_LEFT,
