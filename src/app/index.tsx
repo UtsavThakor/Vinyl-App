@@ -30,6 +30,8 @@ const FALLBACK_ART = 'https://picsum.photos/400/400';
 
 const DISC_LEFT = (width - DISC_SIZE) / 2 + width * 0.05;
 const DISC_TOP = (height - DISC_SIZE) / 2;
+const DISC_CENTER_X = DISC_LEFT + DISC_SIZE / 2;
+const DISC_CENTER_Y = DISC_TOP + DISC_SIZE / 2;
 const ALBUM_LEFT = DISC_LEFT - ALBUM_SIZE * 0.62;
 const ALBUM_TOP = DISC_TOP + DISC_SIZE / 2 - ALBUM_SIZE / 2;
 
@@ -39,11 +41,21 @@ const COVER_TOP = DISC_TOP - (COVER_SIZE - DISC_SIZE) / 2;
 const LOCKED_Y = 0;
 const HIDDEN_Y = -(COVER_TOP + COVER_SIZE - PEEK_HEIGHT);
 
+// --- Tonearm geometry ---
+// Pivot lives off-screen, just past the top-right corner.
+const ARM_PIVOT_X = width + 40;
+const ARM_PIVOT_Y = -40;
+const ARM_LENGTH =
+  Math.hypot(DISC_CENTER_X - ARM_PIVOT_X, DISC_CENTER_Y - ARM_PIVOT_Y) * 0.74;
+const ARM_WIDTH = 14;
+// Angle (deg) the arm sits at when resting (off the disc) vs playing (needle near disc edge)
+const ARM_REST_DEG = 4;    // swung back toward the edge
+const ARM_PLAY_DEG = 17;   // swung in onto the playing surface
+
 const SOFT_EASING = Easing.bezier(0.16, 1, 0.3, 1);
 
 const FALLBACK_GRADIENT = ['#1a1a2e', '#16161f', '#0a0a0f'];
 
-// --- Color extraction (web canvas; falls back on native) ---
 async function extractColors(imageUrl: string): Promise<string[]> {
   if (typeof document === 'undefined') return FALLBACK_GRADIENT;
   return new Promise((resolve) => {
@@ -81,7 +93,6 @@ async function extractColors(imageUrl: string): Promise<string[]> {
   });
 }
 
-// --- Curved rim text (shown once, near the top) ---
 function RimText({ size, text }: { size: number; text: string }) {
   const r = size * 0.455;
   const cx = size / 2;
@@ -223,6 +234,7 @@ export default function VinylPlayer() {
 
   const rotation = useSharedValue(0);
   const coverY = useSharedValue(HIDDEN_Y);
+  const armAngle = useSharedValue(ARM_REST_DEG);
   const isLooping = useRef(false);
   const lastSwipeLeft = useRef<number | null>(null);
 
@@ -233,8 +245,10 @@ export default function VinylPlayer() {
         -1,
         false
       );
+      armAngle.value = withTiming(ARM_PLAY_DEG, { duration: 900, easing: SOFT_EASING });
     } else {
       cancelAnimation(rotation);
+      armAngle.value = withTiming(ARM_REST_DEG, { duration: 900, easing: SOFT_EASING });
     }
   }, [isPlaying]);
 
@@ -244,6 +258,11 @@ export default function VinylPlayer() {
 
   const coverAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: coverY.value }],
+  }));
+
+  // Arm rotates around its off-screen pivot
+  const armAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${armAngle.value}deg` }],
   }));
 
   const discGesture = Gesture.Pan().onEnd((e) => {
@@ -296,6 +315,7 @@ export default function VinylPlayer() {
         <LinearGradient colors={bottomGrad} style={StyleSheet.absoluteFill} />
         <AnimatedGradient colors={topGrad} style={[StyleSheet.absoluteFill, topGradStyle]} />
 
+        {/* Disc */}
         <GestureDetector gesture={discGesture}>
           <Animated.View style={[styles.discWrapper, discAnimatedStyle]}>
             <View style={styles.disc}>
@@ -322,10 +342,21 @@ export default function VinylPlayer() {
           </Animated.View>
         </GestureDetector>
 
+        {/* Album art */}
         <View style={styles.albumWrapper}>
           <Image source={{ uri: albumArt }} style={styles.albumArt} />
         </View>
 
+        {/* Tonearm — pivots off-screen top-right, swings on when playing.
+            zIndex 5: above disc (2) + album (handled), below the loop cover (6). */}
+        <Animated.View style={[styles.armPivot, armAnimatedStyle]} pointerEvents="none">
+          <View style={styles.armShaft} />
+          <View style={styles.armHead}>
+            <View style={styles.armNeedle} />
+          </View>
+        </Animated.View>
+
+        {/* Dark glass cover — above the arm */}
         <GestureDetector gesture={coverGesture}>
           <Animated.View style={[styles.cover, coverAnimatedStyle]}>
             <View style={styles.coverGlass} />
@@ -399,6 +430,43 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#555',
     zIndex: 5,
+  },
+  // Tonearm
+  armPivot: {
+    position: 'absolute',
+    left: ARM_PIVOT_X,
+    top: ARM_PIVOT_Y,
+    width: ARM_WIDTH,
+    height: ARM_LENGTH,
+    zIndex: 5,
+    transformOrigin: 'top center', // rotate around the off-screen pivot
+  },
+  armShaft: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: ARM_WIDTH,
+    height: ARM_LENGTH,
+    borderRadius: ARM_WIDTH / 2,
+    backgroundColor: '#d8d8dc',
+    boxShadow: '0px 2px 6px rgba(0,0,0,0.6)',
+  },
+  armHead: {
+    position: 'absolute',
+    bottom: -10,
+    left: -6,
+    width: ARM_WIDTH + 12,
+    height: 34,
+    borderRadius: 5,
+    backgroundColor: '#3a3a40',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  armNeedle: {
+    width: 3,
+    height: 10,
+    backgroundColor: '#bbb',
+    marginBottom: -6,
   },
   cover: {
     position: 'absolute',
