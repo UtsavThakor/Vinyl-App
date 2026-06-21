@@ -3,7 +3,7 @@ import { useAuthRequest } from 'expo-auth-session';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { type ColorValue, Dimensions, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { type ColorValue, Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
   cancelAnimation,
@@ -19,38 +19,9 @@ import { CLIENT_ID, DISCOVERY, REDIRECT_URI, SCOPES } from '../spotify';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const { width, height } = Dimensions.get('window');
-
-const IS_LANDSCAPE = width > height;
-const SHORT_SIDE = Math.min(width, height);
-
-// iPad-oriented turntable layout: sleeve behind the record, record bleeding off the right edge.
-const DISC_SIZE = IS_LANDSCAPE ? SHORT_SIDE * 0.78 : width * 0.78;
-const ALBUM_SIZE = IS_LANDSCAPE ? DISC_SIZE * 0.72 : width * 0.38;
 const PEEK_HEIGHT = 36;
-const COVER_SIZE = DISC_SIZE * 1.12;
 const FALLBACK_ART = 'https://picsum.photos/400/400';
-
-const DISC_CENTER_X = IS_LANDSCAPE ? width * 0.73 : width * 0.66;
-const DISC_CENTER_Y = IS_LANDSCAPE ? height * 0.52 : height * 0.42;
-const DISC_LEFT = DISC_CENTER_X - DISC_SIZE / 2;
-const DISC_TOP = DISC_CENTER_Y - DISC_SIZE / 2;
-
-const ALBUM_LEFT = IS_LANDSCAPE ? width * 0.11 : width * 0.13;
-const ALBUM_TOP = IS_LANDSCAPE ? height * 0.34 : height * 0.34;
-
-// Cover shares the disc center, larger box, same slide behavior
-const COVER_LEFT = DISC_CENTER_X - COVER_SIZE / 2;
-const COVER_TOP = DISC_CENTER_Y - COVER_SIZE / 2;
-
 const LOCKED_Y = 0;
-const HIDDEN_Y = -(COVER_TOP + COVER_SIZE - PEEK_HEIGHT);
-
-// --- Tonearm geometry (top-right, my choice of placement) ---
-const ARM_PIVOT_X = width - 50;
-const ARM_PIVOT_Y = IS_LANDSCAPE ? height * 0.13 : height * 0.07;
-const ARM_LENGTH =
-  Math.hypot(DISC_CENTER_X - ARM_PIVOT_X, DISC_CENTER_Y - ARM_PIVOT_Y) * 0.74;
 const ARM_WIDTH = 14;
 const ARM_REST_DEG = 4;
 const ARM_PLAY_DEG = 17;
@@ -75,6 +46,49 @@ const FALLBACK_GRADIENT: GradientColors = ['#1a1a2e', '#16161f', '#0a0a0f'];
 const TOKEN_STORAGE_KEY = 'spotify_auth';
 const LEGACY_TOKEN_STORAGE_KEY = 'spotify_token';
 const TOKEN_REFRESH_MARGIN_MS = 60 * 1000;
+
+function getLayout(width: number, height: number) {
+  const isLandscape = width > height;
+  const shortSide = Math.min(width, height);
+  const discSize = isLandscape ? shortSide * 0.78 : width * 0.78;
+  const albumSize = isLandscape ? discSize * 0.72 : width * 0.38;
+  const coverSize = discSize * 1.12;
+
+  const discCenterX = isLandscape ? width * 0.73 : width * 0.66;
+  const discCenterY = isLandscape ? height * 0.52 : height * 0.42;
+  const discLeft = discCenterX - discSize / 2;
+  const discTop = discCenterY - discSize / 2;
+
+  const albumLeft = isLandscape ? width * 0.11 : width * 0.13;
+  const albumTop = height * 0.34;
+
+  const coverLeft = discCenterX - coverSize / 2;
+  const coverTop = discCenterY - coverSize / 2;
+  const hiddenY = -(coverTop + coverSize - PEEK_HEIGHT);
+
+  const armPivotX = width - 50;
+  const armPivotY = isLandscape ? height * 0.13 : height * 0.07;
+  const armLength = Math.hypot(discCenterX - armPivotX, discCenterY - armPivotY) * 0.74;
+
+  return {
+    albumLeft,
+    albumSize,
+    albumTop,
+    armLength,
+    armPivotX,
+    armPivotY,
+    coverLeft,
+    coverSize,
+    coverTop,
+    discLeft,
+    discSize,
+    discTop,
+    hiddenY,
+    isLandscape,
+  };
+}
+
+type PlayerLayout = ReturnType<typeof getLayout>;
 
 function getExpiresAt(expiresIn = 3600) {
   return Date.now() + expiresIn * 1000;
@@ -137,6 +151,9 @@ function RimText({ size, text }: { size: number; text: string }) {
 const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
 
 export default function VinylPlayer() {
+  const { width, height } = useWindowDimensions();
+  const layout = getLayout(width, height);
+  const styles = getStyles(layout);
   const [auth, setAuth] = useState<SpotifyAuth | null>(null);
   const [albumArt, setAlbumArt] = useState<string>(FALLBACK_ART);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -346,10 +363,16 @@ export default function VinylPlayer() {
   );
 
   const rotation = useSharedValue(0);
-  const coverY = useSharedValue(HIDDEN_Y);
+  const coverY = useSharedValue(layout.hiddenY);
   const armAngle = useSharedValue(ARM_REST_DEG);
   const isLooping = useRef(false);
   const lastSwipeLeft = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!isLooping.current) {
+      coverY.value = layout.hiddenY;
+    }
+  }, [layout.hiddenY]);
 
   useEffect(() => {
     if (isPlaying) {
@@ -399,7 +422,7 @@ export default function VinylPlayer() {
       runOnJS(sendCommand)('PUT', 'repeat?state=track');
     } else if (e.translationY < -40 && isLooping.current) {
       isLooping.current = false;
-      coverY.value = withTiming(HIDDEN_Y, { duration: 700, easing: SOFT_EASING });
+      coverY.value = withTiming(layout.hiddenY, { duration: 700, easing: SOFT_EASING });
       runOnJS(sendCommand)('PUT', 'repeat?state=off');
     }
   });
@@ -437,7 +460,7 @@ export default function VinylPlayer() {
           <Animated.View style={[styles.discWrapper, discAnimatedStyle]}>
             <View style={styles.disc}>
               {[...Array(18)].map((_, i) => {
-                const size = DISC_SIZE * 0.22 + i * DISC_SIZE * 0.042;
+                const size = layout.discSize * 0.22 + i * layout.discSize * 0.042;
                 return (
                   <View
                     key={i}
@@ -455,7 +478,7 @@ export default function VinylPlayer() {
               <Image source={{ uri: albumArt }} style={styles.discLabel} />
               <View style={styles.centerHole} />
             </View>
-            {rimString ? <RimText size={DISC_SIZE} text={rimString} /> : null}
+            {rimString ? <RimText size={layout.discSize} text={rimString} /> : null}
           </Animated.View>
         </GestureDetector>
 
@@ -479,7 +502,8 @@ export default function VinylPlayer() {
   );
 }
 
-const styles = StyleSheet.create({
+function getStyles(layout: PlayerLayout) {
+  return StyleSheet.create({
   loginContainer: {
     flex: 1,
     backgroundColor: '#16161f',
@@ -498,33 +522,33 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#16161f', overflow: 'hidden' },
   albumWrapper: {
     position: 'absolute',
-    left: ALBUM_LEFT,
-    top: ALBUM_TOP,
+    left: layout.albumLeft,
+    top: layout.albumTop,
     zIndex: 7,
-    transform: [{ rotate: IS_LANDSCAPE ? '-3deg' : '-2deg' }],
+    transform: [{ rotate: layout.isLandscape ? '-3deg' : '-2deg' }],
     boxShadow: '8px 18px 28px rgba(0,0,0,0.48)',
   },
   albumArt: {
-    width: ALBUM_SIZE,
-    height: ALBUM_SIZE,
+    width: layout.albumSize,
+    height: layout.albumSize,
     borderRadius: 6,
     opacity: 0.9,
   },
   discWrapper: {
     position: 'absolute',
-    left: DISC_LEFT,
-    top: DISC_TOP,
-    width: DISC_SIZE,
-    height: DISC_SIZE,
-    borderRadius: DISC_SIZE / 2,
+    left: layout.discLeft,
+    top: layout.discTop,
+    width: layout.discSize,
+    height: layout.discSize,
+    borderRadius: layout.discSize / 2,
     zIndex: 8,
     opacity: 1,
     boxShadow: '10px 18px 34px rgba(0,0,0,0.44)',
   },
   disc: {
-    width: DISC_SIZE,
-    height: DISC_SIZE,
-    borderRadius: DISC_SIZE / 2,
+    width: layout.discSize,
+    height: layout.discSize,
+    borderRadius: layout.discSize / 2,
     backgroundColor: '#070707',
     alignItems: 'center',
     justifyContent: 'center',
@@ -534,9 +558,9 @@ const styles = StyleSheet.create({
   },
   discLabel: {
     position: 'absolute',
-    width: DISC_SIZE * 0.26,
-    height: DISC_SIZE * 0.26,
-    borderRadius: DISC_SIZE * 0.13,
+    width: layout.discSize * 0.26,
+    height: layout.discSize * 0.26,
+    borderRadius: layout.discSize * 0.13,
     opacity: 0.92,
     zIndex: 4,
   },
@@ -552,10 +576,10 @@ const styles = StyleSheet.create({
   },
   armPivot: {
     position: 'absolute',
-    left: ARM_PIVOT_X,
-    top: ARM_PIVOT_Y,
+    left: layout.armPivotX,
+    top: layout.armPivotY,
     width: ARM_WIDTH,
-    height: ARM_LENGTH,
+    height: layout.armLength,
     zIndex: 10,
     transformOrigin: 'top center',
   },
@@ -564,7 +588,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     width: ARM_WIDTH,
-    height: ARM_LENGTH,
+    height: layout.armLength,
     borderRadius: ARM_WIDTH / 2,
     backgroundColor: '#d8d8dc',
     boxShadow: '0px 2px 6px rgba(0,0,0,0.6)',
@@ -583,18 +607,19 @@ const styles = StyleSheet.create({
   armNeedle: { width: 3, height: 10, backgroundColor: '#bbb', marginBottom: -6 },
   cover: {
     position: 'absolute',
-    left: COVER_LEFT,
-    top: COVER_TOP,
-    width: COVER_SIZE,
-    height: COVER_SIZE,
-    borderRadius: COVER_SIZE / 2,
+    left: layout.coverLeft,
+    top: layout.coverTop,
+    width: layout.coverSize,
+    height: layout.coverSize,
+    borderRadius: layout.coverSize / 2,
     zIndex: 9,
   },
   coverGlass: {
-    width: COVER_SIZE,
-    height: COVER_SIZE,
-    borderRadius: COVER_SIZE / 2,
+    width: layout.coverSize,
+    height: layout.coverSize,
+    borderRadius: layout.coverSize / 2,
     backgroundColor: 'rgba(12, 12, 24, 0.62)',
     boxShadow: '0px 0px 1px rgba(255,255,255,0.10)',
   },
-});
+  });
+}
