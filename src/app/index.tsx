@@ -3,7 +3,7 @@ import { useAuthRequest } from 'expo-auth-session';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Dimensions, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { type ColorValue, Dimensions, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
   cancelAnimation,
@@ -21,22 +21,23 @@ WebBrowser.maybeCompleteAuthSession();
 
 const { width, height } = Dimensions.get('window');
 
-// --- Bigger disc that bleeds off the top-left (matches reference) ---
-const DISC_SIZE = Math.max(width, height) * 0.95;
-const ALBUM_SIZE = DISC_SIZE * 0.42;      // album art scaled up with the disc
+const IS_LANDSCAPE = width > height;
+const SHORT_SIDE = Math.min(width, height);
+
+// iPad-oriented turntable layout: sleeve behind the record, record bleeding off the right edge.
+const DISC_SIZE = IS_LANDSCAPE ? SHORT_SIDE * 0.84 : width * 0.88;
+const ALBUM_SIZE = IS_LANDSCAPE ? DISC_SIZE * 0.78 : width * 0.34;
 const PEEK_HEIGHT = 36;
 const COVER_SIZE = DISC_SIZE * 1.12;
 const FALLBACK_ART = 'https://picsum.photos/400/400';
 
-// Disc center pulled toward upper-left so it bleeds off the top + left edges
-const DISC_CENTER_X = width * 0.40;
-const DISC_CENTER_Y = height * 0.42;
+const DISC_CENTER_X = IS_LANDSCAPE ? width * 0.76 : width * 0.76;
+const DISC_CENTER_Y = IS_LANDSCAPE ? height * 0.52 : height * 0.43;
 const DISC_LEFT = DISC_CENTER_X - DISC_SIZE / 2;
 const DISC_TOP = DISC_CENTER_Y - DISC_SIZE / 2;
 
-// Album art centered on the disc (same relationship as before, just bigger)
-const ALBUM_LEFT = DISC_CENTER_X - ALBUM_SIZE / 2;
-const ALBUM_TOP = DISC_CENTER_Y - ALBUM_SIZE / 2;
+const ALBUM_LEFT = IS_LANDSCAPE ? width * 0.10 : width * 0.15;
+const ALBUM_TOP = IS_LANDSCAPE ? height * 0.32 : height * 0.34;
 
 // Cover shares the disc center, larger box, same slide behavior
 const COVER_LEFT = DISC_CENTER_X - COVER_SIZE / 2;
@@ -47,7 +48,7 @@ const HIDDEN_Y = -(COVER_TOP + COVER_SIZE - PEEK_HEIGHT);
 
 // --- Tonearm geometry (top-right, my choice of placement) ---
 const ARM_PIVOT_X = width - 50;
-const ARM_PIVOT_Y = -40;
+const ARM_PIVOT_Y = IS_LANDSCAPE ? height * 0.13 : height * 0.07;
 const ARM_LENGTH =
   Math.hypot(DISC_CENTER_X - ARM_PIVOT_X, DISC_CENTER_Y - ARM_PIVOT_Y) * 0.74;
 const ARM_WIDTH = 14;
@@ -56,9 +57,30 @@ const ARM_PLAY_DEG = 17;
 
 const SOFT_EASING = Easing.bezier(0.16, 1, 0.3, 1);
 
-const FALLBACK_GRADIENT = ['#1a1a2e', '#16161f', '#0a0a0f'];
+type GradientColors = readonly [ColorValue, ColorValue, ColorValue];
+type SpotifyAuth = {
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt: number;
+};
+type SpotifyTokenResponse = {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  error?: string;
+  error_description?: string;
+};
 
-async function extractColors(imageUrl: string): Promise<string[]> {
+const FALLBACK_GRADIENT: GradientColors = ['#1a1a2e', '#16161f', '#0a0a0f'];
+const TOKEN_STORAGE_KEY = 'spotify_auth';
+const LEGACY_TOKEN_STORAGE_KEY = 'spotify_token';
+const TOKEN_REFRESH_MARGIN_MS = 60 * 1000;
+
+function getExpiresAt(expiresIn = 3600) {
+  return Date.now() + expiresIn * 1000;
+}
+
+async function extractColors(imageUrl: string): Promise<GradientColors> {
   if (typeof document === 'undefined') return FALLBACK_GRADIENT;
   return new Promise((resolve) => {
     try {
@@ -115,33 +137,82 @@ function RimText({ size, text }: { size: number; text: string }) {
 const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
 
 export default function VinylPlayer() {
-  const [token, setToken] = useState<string | null>(null);
+  const [auth, setAuth] = useState<SpotifyAuth | null>(null);
   const [albumArt, setAlbumArt] = useState<string>(FALLBACK_ART);
   const [isPlaying, setIsPlaying] = useState(false);
   const [trackInfo, setTrackInfo] = useState({ title: '', album: '', artist: '' });
 
-  const [bottomGrad, setBottomGrad] = useState<string[]>(FALLBACK_GRADIENT);
-  const [topGrad, setTopGrad] = useState<string[]>(FALLBACK_GRADIENT);
+  const [bottomGrad, setBottomGrad] = useState<GradientColors>(FALLBACK_GRADIENT);
+  const [topGrad, setTopGrad] = useState<GradientColors>(FALLBACK_GRADIENT);
   const gradFade = useSharedValue(1);
+  const token = auth?.accessToken ?? null;
 
   const [request, response, promptAsync] = useAuthRequest(
     { clientId: CLIENT_ID, scopes: SCOPES, usePKCE: true, redirectUri: REDIRECT_URI },
     DISCOVERY
   );
 
-  useEffect(() => {
-    AsyncStorage.getItem('spotify_token').then((saved) => {
-      if (saved) setToken(saved);
-    });
+  const saveAuth = useCallback(async (nextAuth: SpotifyAuth) => {
+    setAuth(nextAuth);
+    await AsyncStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(nextAuth));
+    await AsyncStorage.removeItem(LEGACY_TOKEN_STORAGE_KEY);
   }, []);
 
-  useEffect(() => {
-    if (response?.type === 'success' && response.params.code && request?.codeVerifier) {
-      exchangeCodeForToken(response.params.code, request.codeVerifier);
-    }
-  }, [response]);
+  const clearAuth = useCallback(async () => {
+    setAuth(null);
+    await AsyncStorage.multiRemove([TOKEN_STORAGE_KEY, LEGACY_TOKEN_STORAGE_KEY]);
+  }, []);
 
-  async function exchangeCodeForToken(code: string, verifier: string) {
+  const refreshAccessToken = useCallback(
+    async (refreshToken = auth?.refreshToken) => {
+      if (!refreshToken) {
+        await clearAuth();
+        return null;
+      }
+
+      try {
+        const body = new URLSearchParams({
+          grant_type: 'refresh_token',
+          refresh_token: refreshToken,
+          client_id: CLIENT_ID,
+        }).toString();
+        const res = await fetch(DISCOVERY.tokenEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
+        });
+        const data = (await res.json()) as SpotifyTokenResponse;
+
+        if (!res.ok || !data.access_token) {
+          console.log('Refresh error:', data);
+          await clearAuth();
+          return null;
+        }
+
+        const nextAuth: SpotifyAuth = {
+          accessToken: data.access_token,
+          refreshToken: data.refresh_token || refreshToken,
+          expiresAt: getExpiresAt(data.expires_in),
+        };
+        await saveAuth(nextAuth);
+        return nextAuth.accessToken;
+      } catch (e) {
+        console.log('Refresh error:', e);
+        return null;
+      }
+    },
+    [auth?.refreshToken, clearAuth, saveAuth]
+  );
+
+  const getValidAccessToken = useCallback(async () => {
+    if (!auth) return null;
+    if (auth.expiresAt - TOKEN_REFRESH_MARGIN_MS > Date.now()) {
+      return auth.accessToken;
+    }
+    return refreshAccessToken(auth.refreshToken);
+  }, [auth, refreshAccessToken]);
+
+  const exchangeCodeForToken = useCallback(async (code: string, verifier: string) => {
     try {
       const body = new URLSearchParams({
         grant_type: 'authorization_code',
@@ -155,23 +226,62 @@ export default function VinylPlayer() {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body,
       });
-      const data = await res.json();
+      const data = (await res.json()) as SpotifyTokenResponse;
       if (data.access_token) {
-        setToken(data.access_token);
-        AsyncStorage.setItem('spotify_token', data.access_token);
+        await saveAuth({
+          accessToken: data.access_token,
+          refreshToken: data.refresh_token,
+          expiresAt: getExpiresAt(data.expires_in),
+        });
       } else {
         console.log('Token error:', data);
       }
     } catch (e) {
       console.log('Exchange error:', e);
     }
-  }
+  }, [saveAuth]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadAuth() {
+      const saved = await AsyncStorage.getItem(TOKEN_STORAGE_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved) as SpotifyAuth;
+          if (mounted && parsed.accessToken && parsed.expiresAt) setAuth(parsed);
+          return;
+        } catch {
+          await AsyncStorage.removeItem(TOKEN_STORAGE_KEY);
+        }
+      }
+
+      const legacyToken = await AsyncStorage.getItem(LEGACY_TOKEN_STORAGE_KEY);
+      if (mounted && legacyToken) {
+        setAuth({ accessToken: legacyToken, expiresAt: getExpiresAt() });
+      }
+    }
+
+    loadAuth();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (response?.type === 'success' && response.params.code && request?.codeVerifier) {
+      exchangeCodeForToken(response.params.code, request.codeVerifier);
+    }
+  }, [exchangeCodeForToken, request?.codeVerifier, response]);
 
   const fetchNowPlaying = useCallback(async () => {
-    if (!token) return;
+    const accessToken = await getValidAccessToken();
+    if (!accessToken) return;
+
     try {
       const res = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (res.status === 200) {
         const data = await res.json();
@@ -186,13 +296,12 @@ export default function VinylPlayer() {
       } else if (res.status === 204) {
         setIsPlaying(false);
       } else if (res.status === 401) {
-        setToken(null);
-        AsyncStorage.removeItem('spotify_token');
+        await clearAuth();
       }
     } catch (e) {
       console.log('Now playing error:', e);
     }
-  }, [token]);
+  }, [clearAuth, getValidAccessToken]);
 
   useEffect(() => {
     if (!token) return;
@@ -220,18 +329,20 @@ export default function VinylPlayer() {
 
   const sendCommand = useCallback(
     async (method: 'POST' | 'PUT', endpoint: string) => {
-      if (!token) return;
+      const accessToken = await getValidAccessToken();
+      if (!accessToken) return;
+
       try {
         await fetch(`https://api.spotify.com/v1/me/player/${endpoint}`, {
           method,
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${accessToken}` },
         });
         setTimeout(fetchNowPlaying, 200);
       } catch (e) {
         console.log('Command error:', e);
       }
     },
-    [token, fetchNowPlaying]
+    [fetchNowPlaying, getValidAccessToken]
   );
 
   const rotation = useSharedValue(0);
@@ -295,7 +406,7 @@ export default function VinylPlayer() {
 
   const rimString =
     trackInfo.title || trackInfo.artist
-      ? `${trackInfo.title}  ✺  ${trackInfo.album}  ✺  ${trackInfo.artist}`
+      ? `${trackInfo.title}  /  ${trackInfo.album}  /  ${trackInfo.artist}`
       : '';
 
   if (!token) {
@@ -316,12 +427,17 @@ export default function VinylPlayer() {
         <LinearGradient colors={bottomGrad} style={StyleSheet.absoluteFill} />
         <AnimatedGradient colors={topGrad} style={[StyleSheet.absoluteFill, topGradStyle]} />
 
+        {/* Album sleeve */}
+        <View style={styles.albumWrapper}>
+          <Image source={{ uri: albumArt }} style={styles.albumArt} />
+        </View>
+
         {/* Disc */}
         <GestureDetector gesture={discGesture}>
           <Animated.View style={[styles.discWrapper, discAnimatedStyle]}>
             <View style={styles.disc}>
-              {[...Array(10)].map((_, i) => {
-                const size = DISC_SIZE * 0.34 + i * DISC_SIZE * 0.05;
+              {[...Array(18)].map((_, i) => {
+                const size = DISC_SIZE * 0.22 + i * DISC_SIZE * 0.042;
                 return (
                   <View
                     key={i}
@@ -331,7 +447,7 @@ export default function VinylPlayer() {
                       height: size,
                       borderRadius: size / 2,
                       borderWidth: 1.5,
-                      borderColor: i % 2 === 0 ? '#2a2a2a' : '#161616',
+                      borderColor: i % 2 === 0 ? 'rgba(72,72,72,0.55)' : 'rgba(12,12,12,0.80)',
                     }}
                   />
                 );
@@ -342,11 +458,6 @@ export default function VinylPlayer() {
             {rimString ? <RimText size={DISC_SIZE} text={rimString} /> : null}
           </Animated.View>
         </GestureDetector>
-
-        {/* Album art */}
-        <View style={styles.albumWrapper}>
-          <Image source={{ uri: albumArt }} style={styles.albumArt} />
-        </View>
 
         {/* Tonearm */}
         <Animated.View style={[styles.armPivot, armAnimatedStyle]} pointerEvents="none">
@@ -390,9 +501,15 @@ const styles = StyleSheet.create({
     left: ALBUM_LEFT,
     top: ALBUM_TOP,
     zIndex: 7,
-    boxShadow: '6px 10px 16px rgba(0,0,0,0.9)',
+    transform: [{ rotate: IS_LANDSCAPE ? '-3deg' : '-2deg' }],
+    boxShadow: '8px 18px 28px rgba(0,0,0,0.48)',
   },
-  albumArt: { width: ALBUM_SIZE, height: ALBUM_SIZE, borderRadius: ALBUM_SIZE / 2 },
+  albumArt: {
+    width: ALBUM_SIZE,
+    height: IS_LANDSCAPE ? ALBUM_SIZE : ALBUM_SIZE * 1.28,
+    borderRadius: 6,
+    opacity: 0.9,
+  },
   discWrapper: {
     position: 'absolute',
     left: DISC_LEFT,
@@ -400,7 +517,9 @@ const styles = StyleSheet.create({
     width: DISC_SIZE,
     height: DISC_SIZE,
     borderRadius: DISC_SIZE / 2,
-    zIndex: 2,
+    zIndex: 8,
+    opacity: 1,
+    boxShadow: '10px 18px 34px rgba(0,0,0,0.44)',
   },
   disc: {
     width: DISC_SIZE,
@@ -409,15 +528,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#070707',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 3,
+    borderWidth: 2,
     borderColor: '#2e2e2e',
     overflow: 'hidden',
   },
   discLabel: {
     position: 'absolute',
-    width: DISC_SIZE * 0.30,
-    height: DISC_SIZE * 0.30,
-    borderRadius: DISC_SIZE * 0.15,
+    width: DISC_SIZE * 0.26,
+    height: DISC_SIZE * 0.26,
+    borderRadius: DISC_SIZE * 0.13,
+    opacity: 0.92,
     zIndex: 4,
   },
   centerHole: {
@@ -436,7 +556,7 @@ const styles = StyleSheet.create({
     top: ARM_PIVOT_Y,
     width: ARM_WIDTH,
     height: ARM_LENGTH,
-    zIndex: 5,
+    zIndex: 10,
     transformOrigin: 'top center',
   },
   armShaft: {
@@ -468,7 +588,7 @@ const styles = StyleSheet.create({
     width: COVER_SIZE,
     height: COVER_SIZE,
     borderRadius: COVER_SIZE / 2,
-    zIndex: 6,
+    zIndex: 9,
   },
   coverGlass: {
     width: COVER_SIZE,
