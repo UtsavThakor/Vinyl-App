@@ -25,19 +25,19 @@ const IS_LANDSCAPE = width > height;
 const SHORT_SIDE = Math.min(width, height);
 
 // iPad-oriented turntable layout: sleeve behind the record, record bleeding off the right edge.
-const DISC_SIZE = IS_LANDSCAPE ? SHORT_SIDE * 0.84 : width * 0.88;
-const ALBUM_SIZE = IS_LANDSCAPE ? DISC_SIZE * 0.78 : width * 0.34;
+const DISC_SIZE = IS_LANDSCAPE ? SHORT_SIDE * 0.78 : width * 0.78;
+const ALBUM_SIZE = IS_LANDSCAPE ? DISC_SIZE * 0.72 : width * 0.38;
 const PEEK_HEIGHT = 36;
 const COVER_SIZE = DISC_SIZE * 1.12;
 const FALLBACK_ART = 'https://picsum.photos/400/400';
 
-const DISC_CENTER_X = IS_LANDSCAPE ? width * 0.76 : width * 0.76;
-const DISC_CENTER_Y = IS_LANDSCAPE ? height * 0.52 : height * 0.43;
+const DISC_CENTER_X = IS_LANDSCAPE ? width * 0.73 : width * 0.66;
+const DISC_CENTER_Y = IS_LANDSCAPE ? height * 0.52 : height * 0.42;
 const DISC_LEFT = DISC_CENTER_X - DISC_SIZE / 2;
 const DISC_TOP = DISC_CENTER_Y - DISC_SIZE / 2;
 
-const ALBUM_LEFT = IS_LANDSCAPE ? width * 0.10 : width * 0.15;
-const ALBUM_TOP = IS_LANDSCAPE ? height * 0.32 : height * 0.34;
+const ALBUM_LEFT = IS_LANDSCAPE ? width * 0.11 : width * 0.13;
+const ALBUM_TOP = IS_LANDSCAPE ? height * 0.34 : height * 0.34;
 
 // Cover shares the disc center, larger box, same slide behavior
 const COVER_LEFT = DISC_CENTER_X - COVER_SIZE / 2;
@@ -506,7 +506,7 @@ const styles = StyleSheet.create({
   },
   albumArt: {
     width: ALBUM_SIZE,
-    height: IS_LANDSCAPE ? ALBUM_SIZE : ALBUM_SIZE * 1.28,
+    height: ALBUM_SIZE,
     borderRadius: 6,
     opacity: 0.9,
   },
