@@ -512,17 +512,23 @@ export default function VinylPlayer() {
   const coverGesture = Gesture.Pan().onEnd((e) => {
     if (e.translationY > 40 && !isLooping.current) {
       isLooping.current = true;
+
+      runOnJS(playLidClick)();
+
       coverY.value = withTiming(LOCKED_Y, {
         duration: 700,
         easing: SOFT_EASING,
       });
+
       runOnJS(sendCommand)('PUT', 'repeat?state=track');
     } else if (e.translationY < -40 && isLooping.current) {
       isLooping.current = false;
+
       coverY.value = withTiming(layout.hiddenY, {
         duration: 700,
         easing: SOFT_EASING,
       });
+
       runOnJS(sendCommand)('PUT', 'repeat?state=off');
     }
   });
