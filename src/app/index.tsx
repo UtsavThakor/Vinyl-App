@@ -15,6 +15,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { Defs, Path, Svg, Text as SvgText, TextPath } from 'react-native-svg';
+import { useVinylSfx } from '../hooks/useVinylSfx';
 import { CLIENT_ID, DISCOVERY, REDIRECT_URI, SCOPES } from '../spotify';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -29,11 +30,13 @@ const ARM_PLAY_DEG = 17;
 const SOFT_EASING = Easing.bezier(0.16, 1, 0.3, 1);
 
 type GradientColors = readonly [ColorValue, ColorValue, ColorValue];
+
 type SpotifyAuth = {
   accessToken: string;
   refreshToken?: string;
   expiresAt: number;
 };
+
 type SpotifyTokenResponse = {
   access_token?: string;
   refresh_token?: string;
@@ -96,24 +99,40 @@ function getExpiresAt(expiresIn = 3600) {
 
 async function extractColors(imageUrl: string): Promise<GradientColors> {
   if (typeof document === 'undefined') return FALLBACK_GRADIENT;
+
   return new Promise((resolve) => {
     try {
       const img = new (window as any).Image();
       img.crossOrigin = 'Anonymous';
+
       img.onload = () => {
         try {
           const canvas = document.createElement('canvas');
           const w = (canvas.width = 50);
           const h = (canvas.height = 50);
           const ctx = canvas.getContext('2d');
+
           if (!ctx) return resolve(FALLBACK_GRADIENT);
+
           ctx.drawImage(img, 0, 0, w, h);
+
           const data = ctx.getImageData(0, 0, w, h).data;
-          let r = 0, g = 0, b = 0, count = 0;
+          let r = 0;
+          let g = 0;
+          let b = 0;
+          let count = 0;
+
           for (let i = 0; i < data.length; i += 4) {
-            r += data[i]; g += data[i + 1]; b += data[i + 2]; count++;
+            r += data[i];
+            g += data[i + 1];
+            b += data[i + 2];
+            count++;
           }
-          r = Math.round(r / count); g = Math.round(g / count); b = Math.round(b / count);
+
+          r = Math.round(r / count);
+          g = Math.round(g / count);
+          b = Math.round(b / count);
+
           resolve([
             `rgb(${r},${g},${b})`,
             `rgb(${Math.round(r * 0.4)},${Math.round(g * 0.4)},${Math.round(b * 0.4)})`,
@@ -123,6 +142,7 @@ async function extractColors(imageUrl: string): Promise<GradientColors> {
           resolve(FALLBACK_GRADIENT);
         }
       };
+
       img.onerror = () => resolve(FALLBACK_GRADIENT);
       img.src = imageUrl;
     } catch {
@@ -136,13 +156,17 @@ function RimText({ size, text }: { size: number; text: string }) {
   const cx = size / 2;
   const cy = size / 2;
   const d = `M ${cx - r}, ${cy} a ${r},${r} 0 1,1 ${2 * r},0 a ${r},${r} 0 1,1 ${-2 * r},0`;
+
   return (
     <Svg width={size} height={size} style={StyleSheet.absoluteFill} pointerEvents="none">
       <Defs>
         <Path id="rim" d={d} fill="none" />
       </Defs>
+
       <SvgText fill="rgba(255,255,255,0.5)" fontSize={13} fontWeight="600" letterSpacing={3}>
-        <TextPath href="#rim" startOffset="2%">{text}</TextPath>
+        <TextPath href="#rim" startOffset="2%">
+          {text}
+        </TextPath>
       </SvgText>
     </Svg>
   );
@@ -154,6 +178,9 @@ export default function VinylPlayer() {
   const { width, height } = useWindowDimensions();
   const layout = getLayout(width, height);
   const styles = getStyles(layout);
+
+  const { playManualRecordChange, playLidClick } = useVinylSfx();
+
   const [auth, setAuth] = useState<SpotifyAuth | null>(null);
   const [albumArt, setAlbumArt] = useState<string>(FALLBACK_ART);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -161,11 +188,17 @@ export default function VinylPlayer() {
 
   const [bottomGrad, setBottomGrad] = useState<GradientColors>(FALLBACK_GRADIENT);
   const [topGrad, setTopGrad] = useState<GradientColors>(FALLBACK_GRADIENT);
+
   const gradFade = useSharedValue(1);
   const token = auth?.accessToken ?? null;
 
   const [request, response, promptAsync] = useAuthRequest(
-    { clientId: CLIENT_ID, scopes: SCOPES, usePKCE: true, redirectUri: REDIRECT_URI },
+    {
+      clientId: CLIENT_ID,
+      scopes: SCOPES,
+      usePKCE: true,
+      redirectUri: REDIRECT_URI,
+    },
     DISCOVERY
   );
 
@@ -193,11 +226,13 @@ export default function VinylPlayer() {
           refresh_token: refreshToken,
           client_id: CLIENT_ID,
         }).toString();
+
         const res = await fetch(DISCOVERY.tokenEndpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body,
         });
+
         const data = (await res.json()) as SpotifyTokenResponse;
 
         if (!res.ok || !data.access_token) {
@@ -211,6 +246,7 @@ export default function VinylPlayer() {
           refreshToken: data.refresh_token || refreshToken,
           expiresAt: getExpiresAt(data.expires_in),
         };
+
         await saveAuth(nextAuth);
         return nextAuth.accessToken;
       } catch (e) {
@@ -223,50 +259,63 @@ export default function VinylPlayer() {
 
   const getValidAccessToken = useCallback(async () => {
     if (!auth) return null;
+
     if (auth.expiresAt - TOKEN_REFRESH_MARGIN_MS > Date.now()) {
       return auth.accessToken;
     }
+
     return refreshAccessToken(auth.refreshToken);
   }, [auth, refreshAccessToken]);
 
-  const exchangeCodeForToken = useCallback(async (code: string, verifier: string) => {
-    try {
-      const body = new URLSearchParams({
-        grant_type: 'authorization_code',
-        code,
-        redirect_uri: REDIRECT_URI,
-        client_id: CLIENT_ID,
-        code_verifier: verifier,
-      }).toString();
-      const res = await fetch(DISCOVERY.tokenEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body,
-      });
-      const data = (await res.json()) as SpotifyTokenResponse;
-      if (data.access_token) {
-        await saveAuth({
-          accessToken: data.access_token,
-          refreshToken: data.refresh_token,
-          expiresAt: getExpiresAt(data.expires_in),
+  const exchangeCodeForToken = useCallback(
+    async (code: string, verifier: string) => {
+      try {
+        const body = new URLSearchParams({
+          grant_type: 'authorization_code',
+          code,
+          redirect_uri: REDIRECT_URI,
+          client_id: CLIENT_ID,
+          code_verifier: verifier,
+        }).toString();
+
+        const res = await fetch(DISCOVERY.tokenEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body,
         });
-      } else {
-        console.log('Token error:', data);
+
+        const data = (await res.json()) as SpotifyTokenResponse;
+
+        if (data.access_token) {
+          await saveAuth({
+            accessToken: data.access_token,
+            refreshToken: data.refresh_token,
+            expiresAt: getExpiresAt(data.expires_in),
+          });
+        } else {
+          console.log('Token error:', data);
+        }
+      } catch (e) {
+        console.log('Exchange error:', e);
       }
-    } catch (e) {
-      console.log('Exchange error:', e);
-    }
-  }, [saveAuth]);
+    },
+    [saveAuth]
+  );
 
   useEffect(() => {
     let mounted = true;
 
     async function loadAuth() {
       const saved = await AsyncStorage.getItem(TOKEN_STORAGE_KEY);
+
       if (saved) {
         try {
           const parsed = JSON.parse(saved) as SpotifyAuth;
-          if (mounted && parsed.accessToken && parsed.expiresAt) setAuth(parsed);
+
+          if (mounted && parsed.accessToken && parsed.expiresAt) {
+            setAuth(parsed);
+          }
+
           return;
         } catch {
           await AsyncStorage.removeItem(TOKEN_STORAGE_KEY);
@@ -274,8 +323,12 @@ export default function VinylPlayer() {
       }
 
       const legacyToken = await AsyncStorage.getItem(LEGACY_TOKEN_STORAGE_KEY);
+
       if (mounted && legacyToken) {
-        setAuth({ accessToken: legacyToken, expiresAt: getExpiresAt() });
+        setAuth({
+          accessToken: legacyToken,
+          expiresAt: getExpiresAt(),
+        });
       }
     }
 
@@ -294,17 +347,22 @@ export default function VinylPlayer() {
 
   const fetchNowPlaying = useCallback(async () => {
     const accessToken = await getValidAccessToken();
+
     if (!accessToken) return;
 
     try {
       const res = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
+
       if (res.status === 200) {
         const data = await res.json();
         const art = data?.item?.album?.images?.[0]?.url;
+
         if (art) setAlbumArt(art);
+
         setIsPlaying(!!data?.is_playing);
+
         setTrackInfo({
           title: data?.item?.name || '',
           album: data?.item?.album?.name || '',
@@ -322,31 +380,43 @@ export default function VinylPlayer() {
 
   useEffect(() => {
     if (!token) return;
+
     fetchNowPlaying();
+
     const interval = setInterval(fetchNowPlaying, 1000);
+
     return () => clearInterval(interval);
   }, [token, fetchNowPlaying]);
 
   useEffect(() => {
     let active = true;
+
     extractColors(albumArt).then((cols) => {
       if (!active) return;
+
       setTopGrad(cols);
+
       gradFade.value = 0;
       gradFade.value = withTiming(1, { duration: 1000 }, (finished) => {
-        if (finished) runOnJS(setBottomGrad)(cols);
+        if (finished) {
+          runOnJS(setBottomGrad)(cols);
+        }
       });
     });
+
     return () => {
       active = false;
     };
   }, [albumArt]);
 
-  const topGradStyle = useAnimatedStyle(() => ({ opacity: gradFade.value }));
+  const topGradStyle = useAnimatedStyle(() => ({
+    opacity: gradFade.value,
+  }));
 
   const sendCommand = useCallback(
     async (method: 'POST' | 'PUT', endpoint: string) => {
       const accessToken = await getValidAccessToken();
+
       if (!accessToken) return;
 
       try {
@@ -354,6 +424,7 @@ export default function VinylPlayer() {
           method,
           headers: { Authorization: `Bearer ${accessToken}` },
         });
+
         setTimeout(fetchNowPlaying, 200);
       } catch (e) {
         console.log('Command error:', e);
@@ -362,9 +433,20 @@ export default function VinylPlayer() {
     [fetchNowPlaying, getValidAccessToken]
   );
 
+  const handleManualNext = useCallback(async () => {
+    await playManualRecordChange();
+    await sendCommand('POST', 'next');
+  }, [playManualRecordChange, sendCommand]);
+
+  const handleManualPrevious = useCallback(async () => {
+    await playManualRecordChange();
+    await sendCommand('POST', 'previous');
+  }, [playManualRecordChange, sendCommand]);
+
   const rotation = useSharedValue(0);
   const coverY = useSharedValue(layout.hiddenY);
   const armAngle = useSharedValue(ARM_REST_DEG);
+
   const isLooping = useRef(false);
   const lastSwipeLeft = useRef<number | null>(null);
 
@@ -377,14 +459,25 @@ export default function VinylPlayer() {
   useEffect(() => {
     if (isPlaying) {
       rotation.value = withRepeat(
-        withTiming(rotation.value + 1, { duration: 12000, easing: Easing.linear }),
+        withTiming(rotation.value + 1, {
+          duration: 12000,
+          easing: Easing.linear,
+        }),
         -1,
         false
       );
-      armAngle.value = withTiming(ARM_PLAY_DEG, { duration: 900, easing: SOFT_EASING });
+
+      armAngle.value = withTiming(ARM_PLAY_DEG, {
+        duration: 900,
+        easing: SOFT_EASING,
+      });
     } else {
       cancelAnimation(rotation);
-      armAngle.value = withTiming(ARM_REST_DEG, { duration: 900, easing: SOFT_EASING });
+
+      armAngle.value = withTiming(ARM_REST_DEG, {
+        duration: 900,
+        easing: SOFT_EASING,
+      });
     }
   }, [isPlaying]);
 
@@ -402,11 +495,12 @@ export default function VinylPlayer() {
 
   const discGesture = Gesture.Pan().onEnd((e) => {
     if (e.translationX > 60) {
-      runOnJS(sendCommand)('POST', 'next');
+      runOnJS(handleManualNext)();
     } else if (e.translationX < -60) {
       const now = Date.now();
+
       if (lastSwipeLeft.current && now - lastSwipeLeft.current < 1500) {
-        runOnJS(sendCommand)('POST', 'previous');
+        runOnJS(handleManualPrevious)();
         lastSwipeLeft.current = null;
       } else {
         runOnJS(sendCommand)('PUT', 'seek?position_ms=0');
@@ -418,11 +512,17 @@ export default function VinylPlayer() {
   const coverGesture = Gesture.Pan().onEnd((e) => {
     if (e.translationY > 40 && !isLooping.current) {
       isLooping.current = true;
-      coverY.value = withTiming(LOCKED_Y, { duration: 700, easing: SOFT_EASING });
+      coverY.value = withTiming(LOCKED_Y, {
+        duration: 700,
+        easing: SOFT_EASING,
+      });
       runOnJS(sendCommand)('PUT', 'repeat?state=track');
     } else if (e.translationY < -40 && isLooping.current) {
       isLooping.current = false;
-      coverY.value = withTiming(layout.hiddenY, { duration: 700, easing: SOFT_EASING });
+      coverY.value = withTiming(layout.hiddenY, {
+        duration: 700,
+        easing: SOFT_EASING,
+      });
       runOnJS(sendCommand)('PUT', 'repeat?state=off');
     }
   });
@@ -436,6 +536,7 @@ export default function VinylPlayer() {
     return (
       <View style={styles.loginContainer}>
         <Text style={styles.loginTitle}>Vinyl</Text>
+
         <Pressable style={styles.loginButton} disabled={!request} onPress={() => promptAsync()}>
           <Text style={styles.loginButtonText}>Connect Spotify</Text>
         </Pressable>
@@ -446,7 +547,6 @@ export default function VinylPlayer() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
-
         <LinearGradient colors={bottomGrad} style={StyleSheet.absoluteFill} />
         <AnimatedGradient colors={topGrad} style={[StyleSheet.absoluteFill, topGradStyle]} />
 
@@ -461,6 +561,7 @@ export default function VinylPlayer() {
             <View style={styles.disc}>
               {[...Array(18)].map((_, i) => {
                 const size = layout.discSize * 0.22 + i * layout.discSize * 0.042;
+
                 return (
                   <View
                     key={i}
@@ -475,17 +576,21 @@ export default function VinylPlayer() {
                   />
                 );
               })}
+
               <Image source={{ uri: albumArt }} style={styles.discLabel} />
               <View style={styles.centerHole} />
             </View>
+
             {rimString ? <RimText size={layout.discSize} text={rimString} /> : null}
           </Animated.View>
         </GestureDetector>
 
         {/* Tonearm */}
-        <GestureDetector gesture={Gesture.Tap().onEnd(() => {
-          runOnJS(sendCommand)(isPlaying ? 'PUT' : 'PUT', isPlaying ? 'pause' : 'play');
-        })}>
+        <GestureDetector
+          gesture={Gesture.Tap().onEnd(() => {
+            runOnJS(sendCommand)(isPlaying ? 'PUT' : 'PUT', isPlaying ? 'pause' : 'play');
+          })}
+        >
           <Animated.View style={[styles.armPivot, armAnimatedStyle]}>
             <View style={styles.armShaft} />
             <View style={styles.armHead}>
@@ -500,7 +605,6 @@ export default function VinylPlayer() {
             <View style={styles.coverGlass} />
           </Animated.View>
         </GestureDetector>
-
       </View>
     </GestureHandlerRootView>
   );
@@ -508,122 +612,140 @@ export default function VinylPlayer() {
 
 function getStyles(layout: PlayerLayout) {
   return StyleSheet.create({
-  loginContainer: {
-    flex: 1,
-    backgroundColor: '#16161f',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 40,
-  },
-  loginTitle: { color: '#fff', fontSize: 48, fontWeight: 'bold', letterSpacing: 2 },
-  loginButton: {
-    backgroundColor: '#1DB954',
-    paddingVertical: 16,
-    paddingHorizontal: 40,
-    borderRadius: 30,
-  },
-  loginButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-  container: { flex: 1, backgroundColor: '#16161f', overflow: 'hidden' },
-  albumWrapper: {
-    position: 'absolute',
-    left: layout.albumLeft,
-    top: layout.albumTop,
-    zIndex: 7,
-    transform: [{ rotate: layout.isLandscape ? '-3deg' : '-2deg' }],
-    boxShadow: '8px 18px 28px rgba(0,0,0,0.48)',
-  },
-  albumArt: {
-    width: layout.albumSize,
-    height: layout.albumSize,
-    borderRadius: 6,
-    opacity: 0.9,
-  },
-  discWrapper: {
-    position: 'absolute',
-    left: layout.discLeft,
-    top: layout.discTop,
-    width: layout.discSize,
-    height: layout.discSize,
-    borderRadius: layout.discSize / 2,
-    zIndex: 8,
-    opacity: 1,
-    boxShadow: '10px 18px 34px rgba(0,0,0,0.44)',
-  },
-  disc: {
-    width: layout.discSize,
-    height: layout.discSize,
-    borderRadius: layout.discSize / 2,
-    backgroundColor: '#070707',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#2e2e2e',
-    overflow: 'hidden',
-  },
-  discLabel: {
-    position: 'absolute',
-    width: layout.discSize * 0.26,
-    height: layout.discSize * 0.26,
-    borderRadius: layout.discSize * 0.13,
-    opacity: 0.92,
-    zIndex: 4,
-  },
-  centerHole: {
-    position: 'absolute',
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: '#0a0a0a',
-    borderWidth: 2,
-    borderColor: '#555',
-    zIndex: 5,
-  },
-  armPivot: {
-    position: 'absolute',
-    left: layout.armPivotX,
-    top: layout.armPivotY,
-    width: ARM_WIDTH,
-    height: layout.armLength,
-    zIndex: 10,
-    transformOrigin: 'top center',
-  },
-  armShaft: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: ARM_WIDTH,
-    height: layout.armLength,
-    borderRadius: ARM_WIDTH / 2,
-    backgroundColor: '#d8d8dc',
-    boxShadow: '0px 2px 6px rgba(0,0,0,0.6)',
-  },
-  armHead: {
-    position: 'absolute',
-    bottom: -10,
-    left: -6,
-    width: ARM_WIDTH + 12,
-    height: 34,
-    borderRadius: 5,
-    backgroundColor: '#3a3a40',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-  },
-  armNeedle: { width: 3, height: 10, backgroundColor: '#bbb', marginBottom: -6 },
-  cover: {
-    position: 'absolute',
-    left: layout.coverLeft,
-    top: layout.coverTop,
-    width: layout.coverSize,
-    height: layout.coverSize,
-    borderRadius: layout.coverSize / 2,
-    zIndex: 9,
-  },
-  coverGlass: {
-    width: layout.coverSize,
-    height: layout.coverSize,
-    borderRadius: layout.coverSize / 2,
-    backgroundColor: 'rgba(12, 12, 24, 0.62)',
-    boxShadow: '0px 0px 1px rgba(255,255,255,0.10)',
-  },
+    loginContainer: {
+      flex: 1,
+      backgroundColor: '#16161f',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 40,
+    },
+    loginTitle: {
+      color: '#fff',
+      fontSize: 48,
+      fontWeight: 'bold',
+      letterSpacing: 2,
+    },
+    loginButton: {
+      backgroundColor: '#1DB954',
+      paddingVertical: 16,
+      paddingHorizontal: 40,
+      borderRadius: 30,
+    },
+    loginButtonText: {
+      color: '#fff',
+      fontSize: 18,
+      fontWeight: 'bold',
+    },
+    container: {
+      flex: 1,
+      backgroundColor: '#16161f',
+      overflow: 'hidden',
+    },
+    albumWrapper: {
+      position: 'absolute',
+      left: layout.albumLeft,
+      top: layout.albumTop,
+      zIndex: 7,
+      transform: [{ rotate: layout.isLandscape ? '-3deg' : '-2deg' }],
+      boxShadow: '8px 18px 28px rgba(0,0,0,0.48)',
+    },
+    albumArt: {
+      width: layout.albumSize,
+      height: layout.albumSize,
+      borderRadius: 6,
+      opacity: 0.9,
+    },
+    discWrapper: {
+      position: 'absolute',
+      left: layout.discLeft,
+      top: layout.discTop,
+      width: layout.discSize,
+      height: layout.discSize,
+      borderRadius: layout.discSize / 2,
+      zIndex: 8,
+      opacity: 1,
+      boxShadow: '10px 18px 34px rgba(0,0,0,0.44)',
+    },
+    disc: {
+      width: layout.discSize,
+      height: layout.discSize,
+      borderRadius: layout.discSize / 2,
+      backgroundColor: '#070707',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: '#2e2e2e',
+      overflow: 'hidden',
+    },
+    discLabel: {
+      position: 'absolute',
+      width: layout.discSize * 0.26,
+      height: layout.discSize * 0.26,
+      borderRadius: layout.discSize * 0.13,
+      opacity: 0.92,
+      zIndex: 4,
+    },
+    centerHole: {
+      position: 'absolute',
+      width: 26,
+      height: 26,
+      borderRadius: 13,
+      backgroundColor: '#0a0a0a',
+      borderWidth: 2,
+      borderColor: '#555',
+      zIndex: 5,
+    },
+    armPivot: {
+      position: 'absolute',
+      left: layout.armPivotX,
+      top: layout.armPivotY,
+      width: ARM_WIDTH,
+      height: layout.armLength,
+      zIndex: 10,
+      transformOrigin: 'top center',
+    },
+    armShaft: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      width: ARM_WIDTH,
+      height: layout.armLength,
+      borderRadius: ARM_WIDTH / 2,
+      backgroundColor: '#d8d8dc',
+      boxShadow: '0px 2px 6px rgba(0,0,0,0.6)',
+    },
+    armHead: {
+      position: 'absolute',
+      bottom: -10,
+      left: -6,
+      width: ARM_WIDTH + 12,
+      height: 34,
+      borderRadius: 5,
+      backgroundColor: '#3a3a40',
+      alignItems: 'center',
+      justifyContent: 'flex-end',
+    },
+    armNeedle: {
+      width: 3,
+      height: 10,
+      backgroundColor: '#bbb',
+      marginBottom: -6,
+    },
+    cover: {
+      position: 'absolute',
+      left: layout.coverLeft,
+      top: layout.coverTop,
+      width: layout.coverSize,
+      height: layout.coverSize,
+      borderRadius: layout.coverSize / 2,
+      zIndex: 9,
+    },
+    coverGlass: {
+      width: layout.coverSize,
+      height: layout.coverSize,
+      borderRadius: layout.coverSize / 2,
+      backgroundColor: 'rgba(12, 12, 24, 0.62)',
+      boxShadow: '0px 0px 1px rgba(255,255,255,0.10)',
+    },
   });
 }
