@@ -443,6 +443,20 @@ export default function VinylPlayer() {
     await sendCommand('POST', 'previous');
   }, [playManualRecordChange, sendCommand]);
 
+  const handleLoopOn = useCallback(async () => {
+    const wasPlaying = isPlaying;
+
+    playLidClick();
+
+    await sendCommand('PUT', 'repeat?state=track');
+
+    if (wasPlaying) {
+      setTimeout(() => {
+        sendCommand('PUT', 'play');
+      }, 350);
+    }
+  }, [isPlaying, playLidClick, sendCommand]);
+
   const rotation = useSharedValue(0);
   const coverY = useSharedValue(layout.hiddenY);
   const armAngle = useSharedValue(ARM_REST_DEG);
@@ -513,14 +527,12 @@ export default function VinylPlayer() {
     if (e.translationY > 40 && !isLooping.current) {
       isLooping.current = true;
 
-      runOnJS(playLidClick)();
-
       coverY.value = withTiming(LOCKED_Y, {
         duration: 700,
         easing: SOFT_EASING,
       });
 
-      runOnJS(sendCommand)('PUT', 'repeat?state=track');
+      runOnJS(handleLoopOn)();
     } else if (e.translationY < -40 && isLooping.current) {
       isLooping.current = false;
 
@@ -556,12 +568,10 @@ export default function VinylPlayer() {
         <LinearGradient colors={bottomGrad} style={StyleSheet.absoluteFill} />
         <AnimatedGradient colors={topGrad} style={[StyleSheet.absoluteFill, topGradStyle]} />
 
-        {/* Album sleeve */}
         <View style={styles.albumWrapper}>
           <Image source={{ uri: albumArt }} style={styles.albumArt} />
         </View>
 
-        {/* Disc */}
         <GestureDetector gesture={discGesture}>
           <Animated.View style={[styles.discWrapper, discAnimatedStyle]}>
             <View style={styles.disc}>
@@ -591,7 +601,6 @@ export default function VinylPlayer() {
           </Animated.View>
         </GestureDetector>
 
-        {/* Tonearm */}
         <GestureDetector
           gesture={Gesture.Tap().onEnd(() => {
             runOnJS(sendCommand)(isPlaying ? 'PUT' : 'PUT', isPlaying ? 'pause' : 'play');
@@ -605,7 +614,6 @@ export default function VinylPlayer() {
           </Animated.View>
         </GestureDetector>
 
-        {/* Cover */}
         <GestureDetector gesture={coverGesture}>
           <Animated.View style={[styles.cover, coverAnimatedStyle]}>
             <View style={styles.coverGlass} />
