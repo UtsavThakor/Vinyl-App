@@ -3,16 +3,7 @@ import { useAuthRequest } from 'expo-auth-session';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  type ColorValue,
-  Image,
-  ImageBackground,
-  Pressable,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { type ColorValue, Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
   cancelAnimation,
@@ -38,6 +29,8 @@ const ARM_PLAY_DEG = 17;
 
 const SOFT_EASING = Easing.bezier(0.16, 1, 0.3, 1);
 
+const RIM_ACCENT_COLORS = ['#ff3b30', '#ffcc00', '#34c759', '#007aff'] as const;
+
 type GradientColors = readonly [ColorValue, ColorValue, ColorValue];
 
 type SpotifyAuth = {
@@ -54,7 +47,7 @@ type SpotifyTokenResponse = {
   error_description?: string;
 };
 
-const FALLBACK_GRADIENT: GradientColors = ['rgba(60,60,90,0.42)', 'rgba(20,20,35,0.28)', 'rgba(0,0,0,0)'];
+const FALLBACK_GRADIENT: GradientColors = ['#1a1a2e', '#16161f', '#0a0a0f'];
 const TOKEN_STORAGE_KEY = 'spotify_auth';
 const LEGACY_TOKEN_STORAGE_KEY = 'spotify_token';
 const TOKEN_REFRESH_MARGIN_MS = 60 * 1000;
@@ -106,6 +99,11 @@ function getExpiresAt(expiresIn = 3600) {
   return Date.now() + expiresIn * 1000;
 }
 
+function getRandomRimAccentColor() {
+  const index = Math.floor(Math.random() * RIM_ACCENT_COLORS.length);
+  return RIM_ACCENT_COLORS[index];
+}
+
 async function extractColors(imageUrl: string): Promise<GradientColors> {
   if (typeof document === 'undefined') return FALLBACK_GRADIENT;
 
@@ -143,9 +141,9 @@ async function extractColors(imageUrl: string): Promise<GradientColors> {
           b = Math.round(b / count);
 
           resolve([
-            `rgba(${Math.min(255, Math.round(r * 1.12))},${Math.min(255, Math.round(g * 1.12))},${Math.min(255, Math.round(b * 1.12))},0.36)`,
-            `rgba(${Math.round(r * 0.55)},${Math.round(g * 0.55)},${Math.round(b * 0.55)},0.22)`,
-            'rgba(0,0,0,0)',
+            `rgb(${r},${g},${b})`,
+            `rgb(${Math.round(r * 0.4)},${Math.round(g * 0.4)},${Math.round(b * 0.4)})`,
+            `rgb(${Math.round(r * 0.15)},${Math.round(g * 0.15)},${Math.round(b * 0.15)})`,
           ]);
         } catch {
           resolve(FALLBACK_GRADIENT);
@@ -188,16 +186,21 @@ export default function VinylPlayer() {
   const layout = getLayout(width, height);
   const styles = getStyles(layout);
 
-  const { playManualRecordChange, playLidClick } = useVinylSfx();
+  const { playManualRecordChange } = useVinylSfx();
 
   const [auth, setAuth] = useState<SpotifyAuth | null>(null);
   const [albumArt, setAlbumArt] = useState<string>(FALLBACK_ART);
   const [isPlaying, setIsPlaying] = useState(false);
   const [trackInfo, setTrackInfo] = useState({ title: '', album: '', artist: '' });
-  const [ambientGrad, setAmbientGrad] = useState<GradientColors>(FALLBACK_GRADIENT);
+  const [rimAccentColor, setRimAccentColor] = useState<ColorValue>(getRandomRimAccentColor());
+
+  const [bottomGrad, setBottomGrad] = useState<GradientColors>(FALLBACK_GRADIENT);
+  const [topGrad, setTopGrad] = useState<GradientColors>(FALLBACK_GRADIENT);
 
   const gradFade = useSharedValue(1);
   const token = auth?.accessToken ?? null;
+
+  const currentTrackIdRef = useRef<string | null>(null);
 
   const [request, response, promptAsync] = useAuthRequest(
     {
@@ -365,8 +368,14 @@ export default function VinylPlayer() {
       if (res.status === 200) {
         const data = await res.json();
         const art = data?.item?.album?.images?.[0]?.url;
+        const nextTrackId = data?.item?.id || null;
 
         if (art) setAlbumArt(art);
+
+        if (nextTrackId && currentTrackIdRef.current !== nextTrackId) {
+          currentTrackIdRef.current = nextTrackId;
+          setRimAccentColor(getRandomRimAccentColor());
+        }
 
         setIsPlaying(!!data?.is_playing);
 
@@ -401,9 +410,14 @@ export default function VinylPlayer() {
     extractColors(albumArt).then((cols) => {
       if (!active) return;
 
-      setAmbientGrad(cols);
+      setTopGrad(cols);
+
       gradFade.value = 0;
-      gradFade.value = withTiming(1, { duration: 900 });
+      gradFade.value = withTiming(1, { duration: 1000 }, (finished) => {
+        if (finished) {
+          runOnJS(setBottomGrad)(cols);
+        }
+      });
     });
 
     return () => {
@@ -427,7 +441,7 @@ export default function VinylPlayer() {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
 
-        setTimeout(fetchNowPlaying, 250);
+        setTimeout(fetchNowPlaying, 200);
       } catch (e) {
         console.log('Command error:', e);
       }
@@ -453,20 +467,6 @@ export default function VinylPlayer() {
 
     await sendCommand('PUT', 'play');
   }, [isPlaying, sendCommand]);
-
-  const handleLoopOn = useCallback(async () => {
-    const wasPlaying = isPlaying;
-
-    playLidClick();
-
-    await sendCommand('PUT', 'repeat?state=track');
-
-    if (wasPlaying) {
-      setTimeout(() => {
-        sendCommand('PUT', 'play');
-      }, 350);
-    }
-  }, [isPlaying, playLidClick, sendCommand]);
 
   const rotation = useSharedValue(0);
   const coverY = useSharedValue(layout.hiddenY);
@@ -543,7 +543,7 @@ export default function VinylPlayer() {
         easing: SOFT_EASING,
       });
 
-      runOnJS(handleLoopOn)();
+      runOnJS(sendCommand)('PUT', 'repeat?state=track');
     } else if (e.translationY < -40 && isLooping.current) {
       isLooping.current = false;
 
@@ -576,21 +576,8 @@ export default function VinylPlayer() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
-        <ImageBackground
-          source={{ uri: albumArt }}
-          blurRadius={42}
-          resizeMode="cover"
-          style={styles.backgroundArt}
-          imageStyle={styles.backgroundArtImage}
-        />
-
-        <AnimatedGradient colors={ambientGrad} style={[styles.ambientGlow, topGradStyle]} />
-
-        <View style={styles.leftGlow} />
-        <View style={styles.rightGlow} />
-        <View style={styles.darkWash} />
-        <View style={styles.vignetteTop} />
-        <View style={styles.vignetteBottom} />
+        <LinearGradient colors={bottomGrad} style={StyleSheet.absoluteFill} />
+        <AnimatedGradient colors={topGrad} style={[StyleSheet.absoluteFill, topGradStyle]} />
 
         <View style={styles.albumWrapper}>
           <Image source={{ uri: albumArt }} style={styles.albumArt} />
@@ -601,6 +588,7 @@ export default function VinylPlayer() {
             <View style={styles.disc}>
               {[...Array(18)].map((_, i) => {
                 const size = layout.discSize * 0.22 + i * layout.discSize * 0.042;
+                const isAccentRim = i === 1;
 
                 return (
                   <View
@@ -610,8 +598,12 @@ export default function VinylPlayer() {
                       width: size,
                       height: size,
                       borderRadius: size / 2,
-                      borderWidth: 1.5,
-                      borderColor: i % 2 === 0 ? 'rgba(72,72,72,0.55)' : 'rgba(12,12,12,0.80)',
+                      borderWidth: isAccentRim ? 2.25 : 1.5,
+                      borderColor: isAccentRim
+                        ? rimAccentColor
+                        : i % 2 === 0
+                          ? 'rgba(72,72,72,0.55)'
+                          : 'rgba(12,12,12,0.80)',
                     }}
                   />
                 );
@@ -672,70 +664,8 @@ function getStyles(layout: PlayerLayout) {
     },
     container: {
       flex: 1,
-      backgroundColor: '#050508',
+      backgroundColor: '#16161f',
       overflow: 'hidden',
-    },
-    backgroundArt: {
-      position: 'absolute',
-      left: -90,
-      top: -90,
-      right: -90,
-      bottom: -90,
-      opacity: 0.55,
-      transform: [{ scale: 1.3 }],
-    },
-    backgroundArtImage: {
-      opacity: 1,
-    },
-    ambientGlow: {
-      position: 'absolute',
-      left: 0,
-      right: 0,
-      top: 0,
-      bottom: 0,
-      opacity: 0.55,
-    },
-    leftGlow: {
-      position: 'absolute',
-      left: -layout.discSize * 0.35,
-      top: layout.discTop - layout.discSize * 0.2,
-      width: layout.discSize * 0.9,
-      height: layout.discSize * 0.9,
-      borderRadius: layout.discSize * 0.45,
-      backgroundColor: 'rgba(255,255,255,0.07)',
-    },
-    rightGlow: {
-      position: 'absolute',
-      right: -layout.discSize * 0.25,
-      top: layout.discTop + layout.discSize * 0.05,
-      width: layout.discSize * 0.75,
-      height: layout.discSize * 0.75,
-      borderRadius: layout.discSize * 0.375,
-      backgroundColor: 'rgba(255,255,255,0.055)',
-    },
-    darkWash: {
-      position: 'absolute',
-      left: 0,
-      right: 0,
-      top: 0,
-      bottom: 0,
-      backgroundColor: 'rgba(0,0,0,0.26)',
-    },
-    vignetteTop: {
-      position: 'absolute',
-      left: 0,
-      right: 0,
-      top: 0,
-      height: layout.isLandscape ? 120 : 190,
-      backgroundColor: 'rgba(0,0,0,0.12)',
-    },
-    vignetteBottom: {
-      position: 'absolute',
-      left: 0,
-      right: 0,
-      bottom: 0,
-      height: layout.isLandscape ? 130 : 210,
-      backgroundColor: 'rgba(0,0,0,0.28)',
     },
     albumWrapper: {
       position: 'absolute',
