@@ -429,7 +429,7 @@ export default function VinylPlayer() {
 
   const rimString =
     trackInfo.title || trackInfo.artist
-      ? `${trackInfo.title}  /  ${trackInfo.album}  /  ${trackInfo.artist}`
+      ? `${trackInfo.title}  ✺  ${trackInfo.album}  ✺  ${trackInfo.artist}`
       : '';
 
   if (!token) {
@@ -483,12 +483,16 @@ export default function VinylPlayer() {
         </GestureDetector>
 
         {/* Tonearm */}
-        <Animated.View style={[styles.armPivot, armAnimatedStyle]} pointerEvents="none">
-          <View style={styles.armShaft} />
-          <View style={styles.armHead}>
-            <View style={styles.armNeedle} />
-          </View>
-        </Animated.View>
+        <GestureDetector gesture={Gesture.Tap().onEnd(() => {
+          runOnJS(sendCommand)(isPlaying ? 'PUT' : 'PUT', isPlaying ? 'pause' : 'play');
+        })}>
+          <Animated.View style={[styles.armPivot, armAnimatedStyle]}>
+            <View style={styles.armShaft} />
+            <View style={styles.armHead}>
+              <View style={styles.armNeedle} />
+            </View>
+          </Animated.View>
+        </GestureDetector>
 
         {/* Cover */}
         <GestureDetector gesture={coverGesture}>
