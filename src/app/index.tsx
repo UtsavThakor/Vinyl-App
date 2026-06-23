@@ -54,7 +54,7 @@ type SpotifyTokenResponse = {
   error_description?: string;
 };
 
-const FALLBACK_GRADIENT: GradientColors = ['#101018', '#08080d', '#020204'];
+const FALLBACK_GRADIENT: GradientColors = ['rgba(60,60,90,0.42)', 'rgba(20,20,35,0.28)', 'rgba(0,0,0,0)'];
 const TOKEN_STORAGE_KEY = 'spotify_auth';
 const LEGACY_TOKEN_STORAGE_KEY = 'spotify_token';
 const TOKEN_REFRESH_MARGIN_MS = 60 * 1000;
@@ -143,9 +143,9 @@ async function extractColors(imageUrl: string): Promise<GradientColors> {
           b = Math.round(b / count);
 
           resolve([
-            `rgb(${Math.round(r * 0.32)},${Math.round(g * 0.32)},${Math.round(b * 0.32)})`,
-            `rgb(${Math.round(r * 0.13)},${Math.round(g * 0.13)},${Math.round(b * 0.13)})`,
-            '#020204',
+            `rgba(${Math.min(255, Math.round(r * 1.12))},${Math.min(255, Math.round(g * 1.12))},${Math.min(255, Math.round(b * 1.12))},0.36)`,
+            `rgba(${Math.round(r * 0.55)},${Math.round(g * 0.55)},${Math.round(b * 0.55)},0.22)`,
+            'rgba(0,0,0,0)',
           ]);
         } catch {
           resolve(FALLBACK_GRADIENT);
@@ -400,6 +400,7 @@ export default function VinylPlayer() {
 
     extractColors(albumArt).then((cols) => {
       if (!active) return;
+
       setAmbientGrad(cols);
       gradFade.value = 0;
       gradFade.value = withTiming(1, { duration: 900 });
@@ -577,15 +578,16 @@ export default function VinylPlayer() {
       <View style={styles.container}>
         <ImageBackground
           source={{ uri: albumArt }}
-          blurRadius={70}
+          blurRadius={42}
           resizeMode="cover"
           style={styles.backgroundArt}
           imageStyle={styles.backgroundArtImage}
         />
 
-        <LinearGradient colors={ambientGrad} style={StyleSheet.absoluteFill} />
-        <AnimatedGradient colors={ambientGrad} style={[StyleSheet.absoluteFill, topGradStyle]} />
+        <AnimatedGradient colors={ambientGrad} style={[styles.ambientGlow, topGradStyle]} />
 
+        <View style={styles.leftGlow} />
+        <View style={styles.rightGlow} />
         <View style={styles.darkWash} />
         <View style={styles.vignetteTop} />
         <View style={styles.vignetteBottom} />
@@ -623,18 +625,14 @@ export default function VinylPlayer() {
           </Animated.View>
         </GestureDetector>
 
-        <GestureDetector
-          gesture={Gesture.Tap().onEnd(() => {
-            runOnJS(handleTogglePlay)();
-          })}
-        >
-          <Animated.View style={[styles.armPivot, armAnimatedStyle]}>
-            <View style={styles.armShaft} />
-            <View style={styles.armHead}>
-              <View style={styles.armNeedle} />
-            </View>
-          </Animated.View>
-        </GestureDetector>
+        <Animated.View style={[styles.armPivot, armAnimatedStyle]} pointerEvents="none">
+          <View style={styles.armShaft} />
+          <View style={styles.armHead}>
+            <View style={styles.armNeedle} />
+          </View>
+        </Animated.View>
+
+        <Pressable style={styles.armTapZone} onPress={handleTogglePlay} />
 
         <GestureDetector gesture={coverGesture}>
           <Animated.View style={[styles.cover, coverAnimatedStyle]}>
@@ -679,15 +677,41 @@ function getStyles(layout: PlayerLayout) {
     },
     backgroundArt: {
       position: 'absolute',
-      left: -60,
-      top: -60,
-      right: -60,
-      bottom: -60,
-      opacity: 0.24,
-      transform: [{ scale: 1.18 }],
+      left: -90,
+      top: -90,
+      right: -90,
+      bottom: -90,
+      opacity: 0.55,
+      transform: [{ scale: 1.3 }],
     },
     backgroundArtImage: {
-      opacity: 0.9,
+      opacity: 1,
+    },
+    ambientGlow: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+      opacity: 0.55,
+    },
+    leftGlow: {
+      position: 'absolute',
+      left: -layout.discSize * 0.35,
+      top: layout.discTop - layout.discSize * 0.2,
+      width: layout.discSize * 0.9,
+      height: layout.discSize * 0.9,
+      borderRadius: layout.discSize * 0.45,
+      backgroundColor: 'rgba(255,255,255,0.07)',
+    },
+    rightGlow: {
+      position: 'absolute',
+      right: -layout.discSize * 0.25,
+      top: layout.discTop + layout.discSize * 0.05,
+      width: layout.discSize * 0.75,
+      height: layout.discSize * 0.75,
+      borderRadius: layout.discSize * 0.375,
+      backgroundColor: 'rgba(255,255,255,0.055)',
     },
     darkWash: {
       position: 'absolute',
@@ -695,7 +719,7 @@ function getStyles(layout: PlayerLayout) {
       right: 0,
       top: 0,
       bottom: 0,
-      backgroundColor: 'rgba(0,0,0,0.58)',
+      backgroundColor: 'rgba(0,0,0,0.26)',
     },
     vignetteTop: {
       position: 'absolute',
@@ -703,7 +727,7 @@ function getStyles(layout: PlayerLayout) {
       right: 0,
       top: 0,
       height: layout.isLandscape ? 120 : 190,
-      backgroundColor: 'rgba(0,0,0,0.28)',
+      backgroundColor: 'rgba(0,0,0,0.12)',
     },
     vignetteBottom: {
       position: 'absolute',
@@ -711,7 +735,7 @@ function getStyles(layout: PlayerLayout) {
       right: 0,
       bottom: 0,
       height: layout.isLandscape ? 130 : 210,
-      backgroundColor: 'rgba(0,0,0,0.42)',
+      backgroundColor: 'rgba(0,0,0,0.28)',
     },
     albumWrapper: {
       position: 'absolute',
@@ -766,6 +790,15 @@ function getStyles(layout: PlayerLayout) {
       borderWidth: 2,
       borderColor: '#555',
       zIndex: 5,
+    },
+    armTapZone: {
+      position: 'absolute',
+      left: layout.armPivotX - 70,
+      top: layout.armPivotY - 45,
+      width: 150,
+      height: layout.armLength + 120,
+      zIndex: 30,
+      backgroundColor: 'rgba(255,255,255,0)',
     },
     armPivot: {
       position: 'absolute',
