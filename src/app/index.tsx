@@ -3,7 +3,16 @@ import { useAuthRequest } from 'expo-auth-session';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { type ColorValue, Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import {
+  type ColorValue,
+  Image,
+  ImageBackground,
+  Pressable,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
   cancelAnimation,
@@ -45,7 +54,7 @@ type SpotifyTokenResponse = {
   error_description?: string;
 };
 
-const FALLBACK_GRADIENT: GradientColors = ['#1a1a2e', '#16161f', '#0a0a0f'];
+const FALLBACK_GRADIENT: GradientColors = ['#101018', '#08080d', '#020204'];
 const TOKEN_STORAGE_KEY = 'spotify_auth';
 const LEGACY_TOKEN_STORAGE_KEY = 'spotify_token';
 const TOKEN_REFRESH_MARGIN_MS = 60 * 1000;
@@ -134,9 +143,9 @@ async function extractColors(imageUrl: string): Promise<GradientColors> {
           b = Math.round(b / count);
 
           resolve([
-            `rgb(${r},${g},${b})`,
-            `rgb(${Math.round(r * 0.4)},${Math.round(g * 0.4)},${Math.round(b * 0.4)})`,
-            `rgb(${Math.round(r * 0.15)},${Math.round(g * 0.15)},${Math.round(b * 0.15)})`,
+            `rgb(${Math.round(r * 0.32)},${Math.round(g * 0.32)},${Math.round(b * 0.32)})`,
+            `rgb(${Math.round(r * 0.13)},${Math.round(g * 0.13)},${Math.round(b * 0.13)})`,
+            '#020204',
           ]);
         } catch {
           resolve(FALLBACK_GRADIENT);
@@ -185,9 +194,7 @@ export default function VinylPlayer() {
   const [albumArt, setAlbumArt] = useState<string>(FALLBACK_ART);
   const [isPlaying, setIsPlaying] = useState(false);
   const [trackInfo, setTrackInfo] = useState({ title: '', album: '', artist: '' });
-
-  const [bottomGrad, setBottomGrad] = useState<GradientColors>(FALLBACK_GRADIENT);
-  const [topGrad, setTopGrad] = useState<GradientColors>(FALLBACK_GRADIENT);
+  const [ambientGrad, setAmbientGrad] = useState<GradientColors>(FALLBACK_GRADIENT);
 
   const gradFade = useSharedValue(1);
   const token = auth?.accessToken ?? null;
@@ -393,15 +400,9 @@ export default function VinylPlayer() {
 
     extractColors(albumArt).then((cols) => {
       if (!active) return;
-
-      setTopGrad(cols);
-
+      setAmbientGrad(cols);
       gradFade.value = 0;
-      gradFade.value = withTiming(1, { duration: 1000 }, (finished) => {
-        if (finished) {
-          runOnJS(setBottomGrad)(cols);
-        }
-      });
+      gradFade.value = withTiming(1, { duration: 900 });
     });
 
     return () => {
@@ -425,7 +426,7 @@ export default function VinylPlayer() {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
 
-        setTimeout(fetchNowPlaying, 200);
+        setTimeout(fetchNowPlaying, 250);
       } catch (e) {
         console.log('Command error:', e);
       }
@@ -442,6 +443,15 @@ export default function VinylPlayer() {
     await playManualRecordChange();
     await sendCommand('POST', 'previous');
   }, [playManualRecordChange, sendCommand]);
+
+  const handleTogglePlay = useCallback(async () => {
+    if (isPlaying) {
+      await sendCommand('PUT', 'pause');
+      return;
+    }
+
+    await sendCommand('PUT', 'play');
+  }, [isPlaying, sendCommand]);
 
   const handleLoopOn = useCallback(async () => {
     const wasPlaying = isPlaying;
@@ -565,8 +575,20 @@ export default function VinylPlayer() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
-        <LinearGradient colors={bottomGrad} style={StyleSheet.absoluteFill} />
-        <AnimatedGradient colors={topGrad} style={[StyleSheet.absoluteFill, topGradStyle]} />
+        <ImageBackground
+          source={{ uri: albumArt }}
+          blurRadius={70}
+          resizeMode="cover"
+          style={styles.backgroundArt}
+          imageStyle={styles.backgroundArtImage}
+        />
+
+        <LinearGradient colors={ambientGrad} style={StyleSheet.absoluteFill} />
+        <AnimatedGradient colors={ambientGrad} style={[StyleSheet.absoluteFill, topGradStyle]} />
+
+        <View style={styles.darkWash} />
+        <View style={styles.vignetteTop} />
+        <View style={styles.vignetteBottom} />
 
         <View style={styles.albumWrapper}>
           <Image source={{ uri: albumArt }} style={styles.albumArt} />
@@ -603,7 +625,7 @@ export default function VinylPlayer() {
 
         <GestureDetector
           gesture={Gesture.Tap().onEnd(() => {
-            runOnJS(sendCommand)(isPlaying ? 'PUT' : 'PUT', isPlaying ? 'pause' : 'play');
+            runOnJS(handleTogglePlay)();
           })}
         >
           <Animated.View style={[styles.armPivot, armAnimatedStyle]}>
@@ -652,8 +674,44 @@ function getStyles(layout: PlayerLayout) {
     },
     container: {
       flex: 1,
-      backgroundColor: '#16161f',
+      backgroundColor: '#050508',
       overflow: 'hidden',
+    },
+    backgroundArt: {
+      position: 'absolute',
+      left: -60,
+      top: -60,
+      right: -60,
+      bottom: -60,
+      opacity: 0.24,
+      transform: [{ scale: 1.18 }],
+    },
+    backgroundArtImage: {
+      opacity: 0.9,
+    },
+    darkWash: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      top: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0,0,0,0.58)',
+    },
+    vignetteTop: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      top: 0,
+      height: layout.isLandscape ? 120 : 190,
+      backgroundColor: 'rgba(0,0,0,0.28)',
+    },
+    vignetteBottom: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      height: layout.isLandscape ? 130 : 210,
+      backgroundColor: 'rgba(0,0,0,0.42)',
     },
     albumWrapper: {
       position: 'absolute',

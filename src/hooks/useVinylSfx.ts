@@ -36,21 +36,21 @@ export function useVinylSfx(options: VinylSfxOptions = {}) {
     });
   }, []);
 
-  const replay = useCallback (
+  const replay = useCallback(
     (player: AudioPlayer) => {
-        if (!enabled) return;
+      if (!enabled) return;
 
-        try {
-            player.seekTo(0);
-            player.play();
-        } catch {
-            // ignore audio failures
-        }
+      try {
+        player.seekTo(0);
+        player.play();
+      } catch {
+        // Ignore audio failures.
+      }
     },
     [enabled]
   );
 
-  const playLidClick = useCallback (() => {
+  const playLidClick = useCallback(() => {
     if (!enabled) return;
 
     replay(lidClickPlayer);
@@ -68,9 +68,10 @@ export function useVinylSfx(options: VinylSfxOptions = {}) {
     lastRecordChangeSfxAtRef.current = now;
 
     replay(manualRecordChangePlayer);
+
     void Haptics.selectionAsync().catch(() => {});
 
-    await wait (MANUAL_RECORD_CHANGE_DELAY_MS);
+    await wait(MANUAL_RECORD_CHANGE_DELAY_MS);
   }, [enabled, manualRecordChangePlayer, replay]);
 
   return {
