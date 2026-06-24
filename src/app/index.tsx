@@ -171,7 +171,7 @@ function RimText({ size, text }: { size: number; text: string }) {
         <Path id="rim" d={d} fill="none" />
       </Defs>
 
-      <SvgText fill="#d4af37" fontSize={13} fontWeight="600" letterSpacing={3}>
+      <SvgText fill="#d4af37" fontSize={17} fontWeight="600" letterSpacing={5}>
         <TextPath href="#rim" startOffset="2%">
           {text}
         </TextPath>
@@ -398,6 +398,15 @@ export default function VinylPlayer() {
 
         setIsPlaying(!!data?.is_playing);
 
+        const spotifyRepeat = data?.repeat_state === 'track';
+        if (spotifyRepeat !== isLooping.current) {
+          isLooping.current = spotifyRepeat;
+          coverY.value = withTiming(spotifyRepeat ? LOCKED_Y : layout.hiddenY, {
+            duration: 500,
+            easing: SOFT_EASING,
+          });
+        }
+
         setTrackInfo({
           title: data?.item?.name || '',
           album: data?.item?.album?.name || '',
@@ -479,11 +488,17 @@ export default function VinylPlayer() {
   }, [playManualRecordChange, sendCommand]);
 
   const handleTogglePlay = useCallback(async () => {
-    if (isPlaying) {
-      await sendCommand('PUT', 'pause');
-      return;
+    const accessToken = await getValidAccessToken();
+    if (!accessToken) return;
+    try {
+      await fetch(`https://api.spotify.com/v1/me/player/${isPlaying ? 'pause' : 'play'}`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      setTimeout(fetchNowPlaying, 200);
+     }catch (e) {
+        console.log('Toggle error:', e);
     }
-    await sendCommand('PUT', 'play');
   }, [isPlaying, sendCommand]);
 
   const sendSeekRaw = useCallback(
@@ -922,7 +937,7 @@ function getStyles(layout: PlayerLayout) {
       width: layout.coverSize,
       height: layout.coverSize,
       borderRadius: layout.coverSize / 2,
-      zIndex: 9,
+      zIndex: 11,
     },
     coverGlass: {
       width: layout.coverSize,
