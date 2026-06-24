@@ -652,7 +652,11 @@ export default function VinylPlayer() {
       }
     }
   });
-  const discGesture = Gesture.Exclusive(scrubGesture, swipeGesture);
+  const tapGesture = Gesture.Tap().onEnd(() => {
+    runOnJS(handleTogglePlay)();
+  });
+
+  const discGesture = Gesture.Exclusive(scrubGesture, swipeGesture, tapGesture);
 
   const coverGesture = Gesture.Pan().onEnd((e) => {
     if (e.translationY > 40 && !isLooping.current) {
@@ -718,7 +722,7 @@ export default function VinylPlayer() {
                       width: size,
                       height: size,
                       borderRadius: size / 2,
-                      borderWidth: isAccentRim ? 2.25 : 1.5,
+                      borderWidth: isAccentRim ? 9 : 1.5,
                       borderColor: isAccentRim
                         ? rimAccentColor
                         : i % 2 === 0
@@ -800,6 +804,8 @@ function getStyles(layout: PlayerLayout) {
       height: layout.albumSize,
       borderRadius: 6,
       opacity: 0.9,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.18)',
     },
     discWrapper: {
       position: 'absolute',
@@ -822,6 +828,7 @@ function getStyles(layout: PlayerLayout) {
       borderWidth: 2,
       borderColor: '#2e2e2e',
       overflow: 'hidden',
+      boxShadow: 'insert 0px 0px 60px rgba(0,0,0,0.9), insert 0px 0px 12px rgba(255,255,255,0.06)',
     },
     discLabel: {
       position: 'absolute',
