@@ -25,6 +25,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { Defs, Path, Svg, Text as SvgText, TextPath } from 'react-native-svg';
+import { useLyrics } from '../hooks/useLyrics';
 import { formatNeedleTime, formatShortDate, useTrackStats } from '../hooks/useTrackStats';
 import { useVinylSfx } from '../hooks/useVinylSfx';
 import { CLIENT_ID, DISCOVERY, REDIRECT_URI, SCOPES } from '../spotify';
@@ -234,6 +235,14 @@ export default function VinylPlayer() {
   const token = auth?.accessToken ?? null;
 
   const { currentStats } = useTrackStats(playerStatsSnapshot);
+  const lyrics = useLyrics({
+    trackId: playerStatsSnapshot.trackId,
+    title: trackInfo.title,
+    artist: trackInfo.artist,
+    album: trackInfo.album,
+    durationMs: playerStatsSnapshot.durationMs,
+    enabled: isInsertOpen,
+  });
 
   const currentTrackIdRef = useRef<string | null>(null);
   const durationSv = useSharedValue(0);
@@ -897,17 +906,15 @@ export default function VinylPlayer() {
 
                   <View style={styles.insertRule} />
 
-                  <Text style={styles.lyricText}>
-                    Lyrics are not pressed into this copy yet.
-                    {'\n\n'}
-                    This side will become the lyric sheet once we add a lyrics source.
-                    {'\n\n'}
-                    For now, this page is the physical placeholder: track title, artist, album, and liner note space.
-                    {'\n\n'}
-                    Hold the sleeve to open.
-                    {'\n'}
-                    Tap outside the insert to close.
-                  </Text>
+                  {lyrics.status === 'loading' ? (
+                    <Text style={styles.lyricMuted}>Reading the grooves…</Text>
+                  ) : lyrics.status === 'found' && lyrics.plainLyrics ? (
+                    <Text style={styles.lyricText}>{lyrics.plainLyrics}</Text>
+                  ) : lyrics.status === 'instrumental' ? (
+                    <Text style={styles.lyricMuted}>This pressing is instrumental — no lyric sheet.</Text>
+                  ) : (
+                    <Text style={styles.lyricMuted}>No lyric sheet found for this pressing.</Text>
+                  )}               
 
                   <View style={styles.noteBox}>
                     <Text style={styles.noteBoxLabel}>LINER NOTE</Text>
@@ -1214,9 +1221,18 @@ function getStyles(layout: PlayerLayout) {
     },
     lyricText: {
       color: 'rgba(38,27,18,0.78)',
+      fontFamily: 'Courier, monospace',
       fontSize: 14,
       fontWeight: '600',
       lineHeight: 22,
+    },
+    lyricMuted: {
+      color: 'rgba(63,43,25, 0.55)',
+      fontFamily: 'Courier, monospace',
+      fontSize: 13,
+      fontWeight: '600',
+      fontStyle: 'italic',
+      lineHeight: 20,
     },
     noteBox: {
       marginTop: 18,
