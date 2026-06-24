@@ -171,7 +171,7 @@ function RimText({ size, text }: { size: number; text: string }) {
         <Path id="rim" d={d} fill="none" />
       </Defs>
 
-      <SvgText fill="rgba(255,255,255,0.5)" fontSize={13} fontWeight="600" letterSpacing={3}>
+      <SvgText fill="#d4af37" fontSize={13} fontWeight="600" letterSpacing={3}>
         <TextPath href="#rim" startOffset="2%">
           {text}
         </TextPath>
@@ -202,7 +202,7 @@ export default function VinylPlayer() {
   const token = auth?.accessToken ?? null;
 
   const currentTrackIdRef = useRef<string | null>(null);
-    const durationSv = useSharedValue(0);
+  const durationSv = useSharedValue(0);
   const progressSv = useSharedValue(0);
   const isPlayingSv = useSharedValue(false);
   const isScrubbingSv = useSharedValue(false);
@@ -483,7 +483,7 @@ export default function VinylPlayer() {
       await sendCommand('PUT', 'pause');
       return;
     }
-        await sendCommand('PUT', 'play');
+    await sendCommand('PUT', 'play');
   }, [isPlaying, sendCommand]);
 
   const sendSeekRaw = useCallback(
@@ -491,7 +491,7 @@ export default function VinylPlayer() {
       const accessToken = await getValidAccessToken();
       if (!accessToken) return;
       try {
-        await fetch (
+        await fetch(
           `https://api.spotify.com/v1/me/player/seek?position_ms=${Math.max(0, Math.round(positionMs))}`,
           { method: 'PUT', headers: { Authorization: `Bearer ${accessToken}` } }
         );
@@ -499,11 +499,11 @@ export default function VinylPlayer() {
       } catch (e) {
         console.log('Seek error:', e);
       }
-    }, 
+    },
     [getValidAccessToken, fetchNowPlaying]
   );
 
-  const scrubSeekThrottled = useCallback (
+  const scrubSeekThrottled = useCallback(
     (positionMs: number) => {
       const now = Date.now();
       if (now - lastSeekRef.current < 250) return;
@@ -626,11 +626,11 @@ export default function VinylPlayer() {
       if (!scrubActive.value) return;
       scrubActive.value = false;
       isScrubbingSv.value = false;
-      scrubScale.value = withTiming(1, { duration: 100});
+      scrubScale.value = withTiming(1, { duration: 100 });
       progressSv.value = scrubTarget.value;
       runOnJS(finalizeScrub)(scrubTarget.value);
       if (isPlayingSv.value) {
-        rotation.value = withRepeat (
+        rotation.value = withRepeat(
           withTiming(rotation.value + 1, { duration: 12000, easing: Easing.linear }),
           -1,
           false
@@ -652,6 +652,7 @@ export default function VinylPlayer() {
       }
     }
   });
+
   const tapGesture = Gesture.Tap().onEnd(() => {
     runOnJS(handleTogglePlay)();
   });
@@ -712,9 +713,6 @@ export default function VinylPlayer() {
             <View style={styles.disc}>
               {[...Array(18)].map((_, i) => {
                 const size = layout.discSize * 0.22 + i * layout.discSize * 0.042;
-                const isAccentRim = i === 1;
-                const accentSize = layout.discSize * 0.22 + 3 * layout.discSize * 0.042;
-                const labelSize = layout.discSize * 0.26;
 
                 return (
                   <View
@@ -724,26 +722,39 @@ export default function VinylPlayer() {
                       width: size,
                       height: size,
                       borderRadius: size / 2,
-                      borderWidth: isAccentRim ? (accentSize - labelSize) / 2: 1.5,
-                      borderColor: isAccentRim
-                        ? rimAccentColor
-                        : i % 2 === 0
-                          ? 'rgba(72,72,72,0.55)'
-                          : 'rgba(12,12,12,0.80)',
+                      borderWidth: 1.5,
+                      borderColor:
+                        i % 2 === 0 ? 'rgba(72,72,72,0.55)' : 'rgba(12,12,12,0.80)',
                     }}
                   />
                 );
               })}
+
+              <LinearGradient
+                colors={['rgba(255,255,255,0.10)', 'rgba(255,255,255,0)', 'rgba(255,255,255,0.06)']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={{
+                  position: 'absolute',
+                  width: layout.discSize,
+                  height: layout.discSize,
+                  borderRadius: layout.discSize / 2,
+                  zIndex: 2,
+                }}
+                pointerEvents="none"
+              />
+
               <View
                 style={{
-                position: 'absolute',
-                width: layout.discSize * 0.36,
-                height: layout.discSize * 0.36,
-                borderRadius: layout.discSize * 0.18,
-                backgroundColor: rimAccentColor,
-                zIndex: 3,
-              }}
+                  position: 'absolute',
+                  width: layout.discSize * 0.31,
+                  height: layout.discSize * 0.31,
+                  borderRadius: layout.discSize * 0.155,
+                  backgroundColor: rimAccentColor,
+                  zIndex: 3,
+                }}
               />
+
               <Image source={{ uri: albumArt }} style={styles.discLabel} />
               <View style={styles.centerHole} />
             </View>
@@ -839,7 +850,7 @@ function getStyles(layout: PlayerLayout) {
       borderWidth: 2,
       borderColor: '#2e2e2e',
       overflow: 'hidden',
-      boxShadow: 'insert 0px 0px 60px rgba(0,0,0,0.9), insert 0px 0px 12px rgba(255,255,255,0.06)',
+      boxShadow: 'inset 0px 0px 60px rgba(0,0,0,0.9), inset 0px 0px 12px rgba(255,255,255,0.06)',
     },
     discLabel: {
       position: 'absolute',
