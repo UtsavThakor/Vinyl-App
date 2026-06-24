@@ -16,6 +16,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { Defs, Path, Svg, Text as SvgText, TextPath } from 'react-native-svg';
+import { formatNeedleTime, formatShortDate, useTrackStats } from '../hooks/useTrackStats';
 import { useVinylSfx } from '../hooks/useVinylSfx';
 import { CLIENT_ID, DISCOVERY, REDIRECT_URI, SCOPES } from '../spotify';
 
@@ -46,6 +47,15 @@ type SpotifyTokenResponse = {
   expires_in?: number;
   error?: string;
   error_description?: string;
+};
+
+type PlayerStatsSnapshot = {
+  trackId: string | null;
+  isPlaying: boolean;
+  progressMs: number;
+  durationMs: number;
+  isLooping: boolean;
+  isScrubbing: boolean;
 };
 
 const FALLBACK_GRADIENT: GradientColors = ['#1a1a2e', '#16161f', '#0a0a0f'];
@@ -195,11 +205,22 @@ export default function VinylPlayer() {
   const [trackInfo, setTrackInfo] = useState({ title: '', album: '', artist: '' });
   const [rimAccentColor, setRimAccentColor] = useState<ColorValue>(getRandomRimAccentColor());
 
+  const [playerStatsSnapshot, setPlayerStatsSnapshot] = useState<PlayerStatsSnapshot>({
+    trackId: null,
+    isPlaying: false,
+    progressMs: 0,
+    durationMs: 0,
+    isLooping: false,
+    isScrubbing: false,
+  });
+
   const [bottomGrad, setBottomGrad] = useState<GradientColors>(FALLBACK_GRADIENT);
   const [topGrad, setTopGrad] = useState<GradientColors>(FALLBACK_GRADIENT);
 
   const gradFade = useSharedValue(1);
   const token = auth?.accessToken ?? null;
+
+  const { currentStats } = useTrackStats(playerStatsSnapshot);
 
   const currentTrackIdRef = useRef<string | null>(null);
   const durationSv = useSharedValue(0);
@@ -383,12 +404,20 @@ export default function VinylPlayer() {
 
       if (res.status === 200) {
         const data = await res.json();
+
         durationSv.value = data?.item?.duration_ms || 0;
+
         if (!isScrubbingSv.value && Date.now() > suppressPollUntilRef.current) {
-          if (typeof data?.progress_ms === 'number') progressSv.value = data.progress_ms;
+          if (typeof data?.progress_ms === 'number') {
+            progressSv.value = data.progress_ms;
+          }
         }
+
         const art = data?.item?.album?.images?.[0]?.url;
         const nextTrackId = data?.item?.id || null;
+        const nextIsPlaying = !!data?.is_playing;
+        const nextProgressMs = typeof data?.progress_ms === 'number' ? data.progress_ms : 0;
+        const nextDurationMs = data?.item?.duration_ms || 0;
 
         if (art) setAlbumArt(art);
 
@@ -397,18 +426,29 @@ export default function VinylPlayer() {
           setRimAccentColor(getRandomRimAccentColor());
         }
 
-        setIsPlaying(!!data?.is_playing);
+        setIsPlaying(nextIsPlaying);
 
         if (Date.now() > suppressRepeatSyncUntilRef.current) {
           const spotifyRepeat = data?.repeat_state === 'track';
+
           if (spotifyRepeat !== isLooping.current) {
             isLooping.current = spotifyRepeat;
+
             coverY.value = withTiming(spotifyRepeat ? LOCKED_Y : layout.hiddenY, {
               duration: 500,
               easing: SOFT_EASING,
             });
           }
         }
+
+        setPlayerStatsSnapshot({
+          trackId: nextTrackId,
+          isPlaying: nextIsPlaying,
+          progressMs: nextProgressMs,
+          durationMs: nextDurationMs,
+          isLooping: isLooping.current,
+          isScrubbing: isScrubbingSv.value,
+        });
 
         setTrackInfo({
           title: data?.item?.name || '',
@@ -417,13 +457,19 @@ export default function VinylPlayer() {
         });
       } else if (res.status === 204) {
         setIsPlaying(false);
+
+        setPlayerStatsSnapshot((prev) => ({
+          ...prev,
+          isPlaying: false,
+          isScrubbing: false,
+        }));
       } else if (res.status === 401) {
         await clearAuth();
       }
     } catch (e) {
       console.log('Now playing error:', e);
     }
-  }, [clearAuth, getValidAccessToken]);
+  }, [clearAuth, getValidAccessToken, layout.hiddenY]);
 
   useEffect(() => {
     if (!token) return;
@@ -492,28 +538,39 @@ export default function VinylPlayer() {
 
   const handleTogglePlay = useCallback(async () => {
     const accessToken = await getValidAccessToken();
+
     if (!accessToken) return;
+
     try {
       await fetch(`https://api.spotify.com/v1/me/player/${isPlaying ? 'pause' : 'play'}`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${accessToken}` },
       });
+
       setTimeout(fetchNowPlaying, 200);
-     }catch (e) {
-        console.log('Toggle error:', e);
+    } catch (e) {
+      console.log('Toggle error:', e);
     }
   }, [isPlaying, getValidAccessToken, fetchNowPlaying]);
 
   const sendSeekRaw = useCallback(
     async (positionMs: number, isFinal = false) => {
       const accessToken = await getValidAccessToken();
+
       if (!accessToken) return;
+
       try {
         await fetch(
           `https://api.spotify.com/v1/me/player/seek?position_ms=${Math.max(0, Math.round(positionMs))}`,
-          { method: 'PUT', headers: { Authorization: `Bearer ${accessToken}` } }
+          {
+            method: 'PUT',
+            headers: { Authorization: `Bearer ${accessToken}` },
+          }
         );
-        if (isFinal) setTimeout(fetchNowPlaying, 350);
+
+        if (isFinal) {
+          setTimeout(fetchNowPlaying, 350);
+        }
       } catch (e) {
         console.log('Seek error:', e);
       }
@@ -524,7 +581,9 @@ export default function VinylPlayer() {
   const scrubSeekThrottled = useCallback(
     (positionMs: number) => {
       const now = Date.now();
+
       if (now - lastSeekRef.current < 250) return;
+
       lastSeekRef.current = now;
       sendSeekRaw(positionMs, false);
     },
@@ -542,7 +601,9 @@ export default function VinylPlayer() {
   const onScrubEngage = useCallback(() => {
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    } catch {}
+    } catch {
+      // Ignore haptic failures.
+    }
   }, []);
 
   const rotation = useSharedValue(0);
@@ -560,7 +621,9 @@ export default function VinylPlayer() {
 
   useEffect(() => {
     isPlayingSv.value = isPlaying;
+
     if (isScrubbingSv.value) return;
+
     if (isPlaying) {
       rotation.value = withRepeat(
         withTiming(rotation.value + 1, {
@@ -615,19 +678,27 @@ export default function VinylPlayer() {
       scrubBaseRotation.value = rotation.value;
       scrubStartProgress.value = progressSv.value;
       scrubAccumulated.value = 0;
+
       const a = Math.atan2(e.absoluteY - discCy, e.absoluteX - discCx);
       scrubPrevAngle.value = a;
 
       scrubTarget.value = progressSv.value;
       scrubScale.value = withTiming(1.04, { duration: 180 });
+
       runOnJS(onScrubEngage)();
     })
     .onUpdate((e) => {
       if (!scrubActive.value) return;
+
       const raw = Math.atan2(e.absoluteY - discCy, e.absoluteX - discCx);
       let delta = raw - scrubPrevAngle.value;
-      if (delta > Math.PI) delta -= 2 * Math.PI;
-      else if (delta < -Math.PI) delta += 2 * Math.PI;
+
+      if (delta > Math.PI) {
+        delta -= 2 * Math.PI;
+      } else if (delta < -Math.PI) {
+        delta += 2 * Math.PI;
+      }
+
       scrubAccumulated.value += delta;
       scrubPrevAngle.value = raw;
 
@@ -635,21 +706,30 @@ export default function VinylPlayer() {
 
       const frac = scrubAccumulated.value / Math.PI;
       let target = scrubStartProgress.value + frac * durationSv.value;
+
       if (target < 0) target = 0;
       if (target > durationSv.value) target = durationSv.value;
+
       scrubTarget.value = target;
+
       runOnJS(scrubSeekThrottled)(target);
     })
     .onFinalize(() => {
       if (!scrubActive.value) return;
+
       scrubActive.value = false;
       isScrubbingSv.value = false;
       scrubScale.value = withTiming(1, { duration: 100 });
       progressSv.value = scrubTarget.value;
+
       runOnJS(finalizeScrub)(scrubTarget.value);
+
       if (isPlayingSv.value) {
         rotation.value = withRepeat(
-          withTiming(rotation.value + 1, { duration: 12000, easing: Easing.linear }),
+          withTiming(rotation.value + 1, {
+            duration: 12000,
+            easing: Easing.linear,
+          }),
           -1,
           false
         );
@@ -661,6 +741,7 @@ export default function VinylPlayer() {
       runOnJS(handleManualNext)();
     } else if (e.translationX < -60) {
       const now = Date.now();
+
       if (lastSwipeLeft.current && now - lastSwipeLeft.current < 1500) {
         runOnJS(handleManualPrevious)();
         lastSwipeLeft.current = null;
@@ -676,10 +757,11 @@ export default function VinylPlayer() {
   });
 
   const discGesture = Gesture.Exclusive(scrubGesture, swipeGesture, tapGesture);
-  
+
   const markRepeatSuppression = () => {
     suppressRepeatSyncUntilRef.current = Date.now() + 2500;
   };
+
   const coverGesture = Gesture.Pan().onEnd((e) => {
     if (e.translationY > 40 && !isLooping.current) {
       isLooping.current = true;
@@ -698,6 +780,7 @@ export default function VinylPlayer() {
         duration: 700,
         easing: SOFT_EASING,
       });
+
       runOnJS(markRepeatSuppression)();
       runOnJS(sendCommand)('PUT', 'repeat?state=off');
     }
@@ -730,6 +813,36 @@ export default function VinylPlayer() {
           <Image source={{ uri: albumArt }} style={styles.albumArt} />
         </View>
 
+        {currentStats ? (
+          <View style={styles.pressingNotesCard}>
+            <Text style={styles.pressingNotesLabel}>PRESSING NOTES</Text>
+
+            <Text style={styles.pressingNotesTitle} numberOfLines={1}>
+              {trackInfo.title || 'Unknown Track'}
+            </Text>
+
+            <View style={styles.pressingNotesRow}>
+              <Text style={styles.pressingNotesKey}>First spun</Text>
+              <Text style={styles.pressingNotesValue}>{formatShortDate(currentStats.firstPlayedAt)}</Text>
+            </View>
+
+            <View style={styles.pressingNotesRow}>
+              <Text style={styles.pressingNotesKey}>Times on turntable</Text>
+              <Text style={styles.pressingNotesValue}>{currentStats.playCount}</Text>
+            </View>
+
+            <View style={styles.pressingNotesRow}>
+              <Text style={styles.pressingNotesKey}>Needle time</Text>
+              <Text style={styles.pressingNotesValue}>{formatNeedleTime(currentStats.totalMs)}</Text>
+            </View>
+
+            <View style={styles.pressingNotesRow}>
+              <Text style={styles.pressingNotesKey}>Loop rituals</Text>
+              <Text style={styles.pressingNotesValue}>{currentStats.loopCount}</Text>
+            </View>
+          </View>
+        ) : null}
+
         <GestureDetector gesture={discGesture}>
           <Animated.View style={[styles.discWrapper, discAnimatedStyle]}>
             <View style={styles.disc}>
@@ -745,8 +858,7 @@ export default function VinylPlayer() {
                       height: size,
                       borderRadius: size / 2,
                       borderWidth: 1.5,
-                      borderColor:
-                        i % 2 === 0 ? 'rgba(72,72,72,0.55)' : 'rgba(12,12,12,0.80)',
+                      borderColor: i % 2 === 0 ? 'rgba(72,72,72,0.55)' : 'rgba(12,12,12,0.80)',
                     }}
                   />
                 );
@@ -850,6 +962,49 @@ function getStyles(layout: PlayerLayout) {
       opacity: 0.9,
       borderWidth: 1,
       borderColor: 'rgba(255,255,255,0.18)',
+    },
+    pressingNotesCard: {
+      position: 'absolute',
+      left: layout.albumLeft,
+      top: layout.albumTop + layout.albumSize + 16,
+      width: layout.albumSize,
+      zIndex: 20,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderRadius: 10,
+      backgroundColor: 'rgba(245,232,199,0.86)',
+      borderWidth: 1,
+      borderColor: 'rgba(80,55,30,0.32)',
+      boxShadow: '6px 10px 18px rgba(0,0,0,0.32)',
+    },
+    pressingNotesLabel: {
+      color: 'rgba(50,34,20,0.68)',
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 1.4,
+      marginBottom: 6,
+    },
+    pressingNotesTitle: {
+      color: 'rgba(35,24,16,0.94)',
+      fontSize: 14,
+      fontWeight: '800',
+      marginBottom: 8,
+    },
+    pressingNotesRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      gap: 10,
+      marginTop: 4,
+    },
+    pressingNotesKey: {
+      color: 'rgba(45,32,22,0.64)',
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    pressingNotesValue: {
+      color: 'rgba(28,20,14,0.92)',
+      fontSize: 11,
+      fontWeight: '800',
     },
     discWrapper: {
       position: 'absolute',
