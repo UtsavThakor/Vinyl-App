@@ -813,35 +813,39 @@ export default function VinylPlayer() {
           <Image source={{ uri: albumArt }} style={styles.albumArt} />
         </View>
 
-        {currentStats ? (
-          <View style={styles.pressingNotesCard}>
-            <Text style={styles.pressingNotesLabel}>PRESSING NOTES</Text>
+        <View style={styles.pressingNotesCard}>
+          <Text style={styles.pressingNotesLabel}>PRESSING NOTES</Text>
 
-            <Text style={styles.pressingNotesTitle} numberOfLines={1}>
-              {trackInfo.title || 'Unknown Track'}
+          <Text style={styles.pressingNotesTitle} numberOfLines={1}>
+            {trackInfo.title || trackInfo.album || 'No track loaded'}
+          </Text>
+
+          <View style={styles.pressingNotesDivider} />
+
+          <View style={styles.pressingNotesRow}>
+            <Text style={styles.pressingNotesKey}>First spun</Text>
+            <Text style={styles.pressingNotesValue}>
+              {currentStats ? formatShortDate(currentStats.firstPlayedAt) : '—'}
             </Text>
-
-            <View style={styles.pressingNotesRow}>
-              <Text style={styles.pressingNotesKey}>First spun</Text>
-              <Text style={styles.pressingNotesValue}>{formatShortDate(currentStats.firstPlayedAt)}</Text>
-            </View>
-
-            <View style={styles.pressingNotesRow}>
-              <Text style={styles.pressingNotesKey}>Times on turntable</Text>
-              <Text style={styles.pressingNotesValue}>{currentStats.playCount}</Text>
-            </View>
-
-            <View style={styles.pressingNotesRow}>
-              <Text style={styles.pressingNotesKey}>Needle time</Text>
-              <Text style={styles.pressingNotesValue}>{formatNeedleTime(currentStats.totalMs)}</Text>
-            </View>
-
-            <View style={styles.pressingNotesRow}>
-              <Text style={styles.pressingNotesKey}>Loop rituals</Text>
-              <Text style={styles.pressingNotesValue}>{currentStats.loopCount}</Text>
-            </View>
           </View>
-        ) : null}
+
+          <View style={styles.pressingNotesRow}>
+            <Text style={styles.pressingNotesKey}>Times on turntable</Text>
+            <Text style={styles.pressingNotesValue}>{currentStats ? currentStats.playCount : '—'}</Text>
+          </View>
+
+          <View style={styles.pressingNotesRow}>
+            <Text style={styles.pressingNotesKey}>Needle time</Text>
+            <Text style={styles.pressingNotesValue}>
+              {currentStats ? formatNeedleTime(currentStats.totalMs) : '—'}
+            </Text>
+          </View>
+
+          <View style={styles.pressingNotesRow}>
+            <Text style={styles.pressingNotesKey}>Loop rituals</Text>
+            <Text style={styles.pressingNotesValue}>{currentStats ? currentStats.loopCount : '—'}</Text>
+          </View>
+        </View>
 
         <GestureDetector gesture={discGesture}>
           <Animated.View style={[styles.discWrapper, discAnimatedStyle]}>
@@ -968,11 +972,12 @@ function getStyles(layout: PlayerLayout) {
       left: layout.albumLeft,
       top: layout.albumTop + layout.albumSize + 16,
       width: layout.albumSize,
-      zIndex: 20,
+      minHeight: 138,
+      zIndex: 40,
       paddingVertical: 12,
       paddingHorizontal: 14,
       borderRadius: 10,
-      backgroundColor: 'rgba(245,232,199,0.86)',
+      backgroundColor: 'rgba(245,232,199,0.92)',
       borderWidth: 1,
       borderColor: 'rgba(80,55,30,0.32)',
       boxShadow: '6px 10px 18px rgba(0,0,0,0.32)',
@@ -982,29 +987,35 @@ function getStyles(layout: PlayerLayout) {
       fontSize: 10,
       fontWeight: '800',
       letterSpacing: 1.4,
-      marginBottom: 6,
+      marginBottom: 5,
     },
     pressingNotesTitle: {
       color: 'rgba(35,24,16,0.94)',
-      fontSize: 14,
+      fontSize: 13,
       fontWeight: '800',
-      marginBottom: 8,
+      marginBottom: 7,
+    },
+    pressingNotesDivider: {
+      height: 1,
+      backgroundColor: 'rgba(80,55,30,0.22)',
+      marginBottom: 7,
     },
     pressingNotesRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
+      alignItems: 'center',
       gap: 10,
-      marginTop: 4,
+      marginTop: 5,
     },
     pressingNotesKey: {
-      color: 'rgba(45,32,22,0.64)',
+      color: 'rgba(45,32,22,0.66)',
       fontSize: 11,
       fontWeight: '700',
     },
     pressingNotesValue: {
-      color: 'rgba(28,20,14,0.92)',
+      color: 'rgba(28,20,14,0.94)',
       fontSize: 11,
-      fontWeight: '800',
+      fontWeight: '900',
     },
     discWrapper: {
       position: 'absolute',
