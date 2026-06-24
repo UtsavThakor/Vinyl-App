@@ -558,6 +558,10 @@ export default function VinylPlayer() {
     );
   }, [insertProgress]);
 
+  const preventContextMenu = useCallback((event: any) => {
+    event.preventDefault();
+  }, []);
+
   const sendCommand = useCallback(
     async (method: 'POST' | 'PUT', endpoint: string) => {
       const accessToken = await getValidAccessToken();
@@ -854,10 +858,20 @@ export default function VinylPlayer() {
         <LinearGradient colors={bottomGrad} style={StyleSheet.absoluteFill} />
         <AnimatedGradient colors={topGrad} style={[StyleSheet.absoluteFill, topGradStyle]} />
 
-        <Pressable style={styles.albumWrapper} delayLongPress={420} onLongPress={openInsert}>
-          <Image source={{ uri: albumArt }} style={styles.albumArt} />
+        <Pressable
+          style={styles.albumWrapper}
+          delayLongPress={420}
+          onLongPress={openInsert}
+          onContextMenu={preventContextMenu as any}
+        >
+          <Image
+            source={{ uri: albumArt }}
+            style={[styles.albumArt, styles.noImageCallout as any]}
+            pointerEvents="none"
+            draggable={false as any}
+          />
 
-          <View style={styles.sleeveHint}>
+          <View style={styles.sleeveHint} pointerEvents="none">
             <Text style={styles.sleeveHintText}>hold sleeve</Text>
           </View>
         </Pressable>
@@ -1086,6 +1100,11 @@ function getStyles(layout: PlayerLayout) {
       opacity: 0.9,
       borderWidth: 1,
       borderColor: 'rgba(255,255,255,0.18)',
+    },
+    noImageCallout: {
+      userSelect: 'none',
+      WebkitUserSelect: 'none',
+      WebkitTouchCallout: 'none',
     },
     sleeveHint: {
       position: 'absolute',
