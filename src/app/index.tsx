@@ -734,7 +734,16 @@ export default function VinylPlayer() {
                   />
                 );
               })}
-
+              <View
+                style={{
+                position: 'absolute',
+                width: layout.discSize * 0.36,
+                height: layout.discSize * 0.36,
+                borderRadius: layout.discSize * 0.18,
+                backgroundColor: rimAccentColor,
+                zIndex: 3,
+              }}
+              />
               <Image source={{ uri: albumArt }} style={styles.discLabel} />
               <View style={styles.centerHole} />
             </View>
