@@ -713,6 +713,8 @@ export default function VinylPlayer() {
               {[...Array(18)].map((_, i) => {
                 const size = layout.discSize * 0.22 + i * layout.discSize * 0.042;
                 const isAccentRim = i === 1;
+                const accentSize = layout.discSize * 0.22 + 3 * layout.discSize * 0.042;
+                const labelSize = layout.discSize * 0.26;
 
                 return (
                   <View
@@ -722,7 +724,7 @@ export default function VinylPlayer() {
                       width: size,
                       height: size,
                       borderRadius: size / 2,
-                      borderWidth: isAccentRim ? 9 : 1.5,
+                      borderWidth: isAccentRim ? (accentSize - labelSize) / 2: 1.5,
                       borderColor: isAccentRim
                         ? rimAccentColor
                         : i % 2 === 0
