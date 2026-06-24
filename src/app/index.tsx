@@ -216,6 +216,7 @@ export default function VinylPlayer() {
 
   const lastSeekRef = useRef(0);
   const suppressPollUntilRef = useRef(0);
+  const suppressRepeatSyncUntilRef = useRef(0);
 
   const [request, response, promptAsync] = useAuthRequest(
     {
@@ -376,7 +377,7 @@ export default function VinylPlayer() {
     if (!accessToken) return;
 
     try {
-      const res = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
+      const res = await fetch('https://api.spotify.com/v1/me/player', {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
@@ -398,13 +399,15 @@ export default function VinylPlayer() {
 
         setIsPlaying(!!data?.is_playing);
 
-        const spotifyRepeat = data?.repeat_state === 'track';
-        if (spotifyRepeat !== isLooping.current) {
-          isLooping.current = spotifyRepeat;
-          coverY.value = withTiming(spotifyRepeat ? LOCKED_Y : layout.hiddenY, {
-            duration: 500,
-            easing: SOFT_EASING,
-          });
+        if (Date.now() > suppressRepeatSyncUntilRef.current) {
+          const spotifyRepeat = data?.repeat_state === 'track';
+          if (spotifyRepeat !== isLooping.current) {
+            isLooping.current = spotifyRepeat;
+            coverY.value = withTiming(spotifyRepeat ? LOCKED_Y : layout.hiddenY, {
+              duration: 500,
+              easing: SOFT_EASING,
+            });
+          }
         }
 
         setTrackInfo({
@@ -499,7 +502,7 @@ export default function VinylPlayer() {
      }catch (e) {
         console.log('Toggle error:', e);
     }
-  }, [isPlaying, sendCommand]);
+  }, [isPlaying, getValidAccessToken, fetchNowPlaying]);
 
   const sendSeekRaw = useCallback(
     async (positionMs: number, isFinal = false) => {
@@ -673,7 +676,10 @@ export default function VinylPlayer() {
   });
 
   const discGesture = Gesture.Exclusive(scrubGesture, swipeGesture, tapGesture);
-
+  
+  const markRepeatSuppression = () => {
+    suppressRepeatSyncUntilRef.current = Date.now() + 2500;
+  };
   const coverGesture = Gesture.Pan().onEnd((e) => {
     if (e.translationY > 40 && !isLooping.current) {
       isLooping.current = true;
@@ -683,6 +689,7 @@ export default function VinylPlayer() {
         easing: SOFT_EASING,
       });
 
+      runOnJS(markRepeatSuppression)();
       runOnJS(sendCommand)('PUT', 'repeat?state=track');
     } else if (e.translationY < -40 && isLooping.current) {
       isLooping.current = false;
@@ -691,7 +698,7 @@ export default function VinylPlayer() {
         duration: 700,
         easing: SOFT_EASING,
       });
-
+      runOnJS(markRepeatSuppression)();
       runOnJS(sendCommand)('PUT', 'repeat?state=off');
     }
   });
