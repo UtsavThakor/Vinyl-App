@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthRequest } from 'expo-auth-session';
+import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -201,6 +202,20 @@ export default function VinylPlayer() {
   const token = auth?.accessToken ?? null;
 
   const currentTrackIdRef = useRef<string | null>(null);
+    const durationSv = useSharedValue(0);
+  const progressSv = useSharedValue(0);
+  const isPlayingSv = useSharedValue(false);
+  const isScrubbingSv = useSharedValue(false);
+  const scrubActive = useSharedValue(false);
+  const scrubScale = useSharedValue(1);
+  const scrubBaseRotation = useSharedValue(0);
+  const scrubStartProgress = useSharedValue(0);
+  const scrubAccumulated = useSharedValue(0);
+  const scrubPrevAngle = useSharedValue(0);
+  const scrubTarget = useSharedValue(0);
+
+  const lastSeekRef = useRef(0);
+  const suppressPollUntilRef = useRef(0);
 
   const [request, response, promptAsync] = useAuthRequest(
     {
@@ -367,6 +382,10 @@ export default function VinylPlayer() {
 
       if (res.status === 200) {
         const data = await res.json();
+        durationSv.value = data?.item?.duration_ms || 0;
+        if (!isScrubbingSv.value && Date.now() > suppressPollUntilRef.current) {
+          if (typeof data?.progress_ms === 'number') progressSv.value = data.progress_ms;
+        }
         const art = data?.item?.album?.images?.[0]?.url;
         const nextTrackId = data?.item?.id || null;
 
@@ -464,9 +483,49 @@ export default function VinylPlayer() {
       await sendCommand('PUT', 'pause');
       return;
     }
-
-    await sendCommand('PUT', 'play');
+        await sendCommand('PUT', 'play');
   }, [isPlaying, sendCommand]);
+
+  const sendSeekRaw = useCallback(
+    async (positionMs: number, isFinal = false) => {
+      const accessToken = await getValidAccessToken();
+      if (!accessToken) return;
+      try {
+        await fetch (
+          `https://api.spotify.com/v1/me/player/seek?position_ms=${Math.max(0, Math.round(positionMs))}`,
+          { method: 'PUT', headers: { Authorization: `Bearer ${accessToken}` } }
+        );
+        if (isFinal) setTimeout(fetchNowPlaying, 350);
+      } catch (e) {
+        console.log('Seek error:', e);
+      }
+    }, 
+    [getValidAccessToken, fetchNowPlaying]
+  );
+
+  const scrubSeekThrottled = useCallback (
+    (positionMs: number) => {
+      const now = Date.now();
+      if (now - lastSeekRef.current < 250) return;
+      lastSeekRef.current = now;
+      sendSeekRaw(positionMs, false);
+    },
+    [sendSeekRaw]
+  );
+
+  const finalizeScrub = useCallback(
+    (positionMs: number) => {
+      suppressPollUntilRef.current = Date.now() + 900;
+      sendSeekRaw(positionMs, true);
+    },
+    [sendSeekRaw]
+  );
+
+  const onScrubEngage = useCallback(() => {
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+  }, []);
 
   const rotation = useSharedValue(0);
   const coverY = useSharedValue(layout.hiddenY);
@@ -482,6 +541,8 @@ export default function VinylPlayer() {
   }, [layout.hiddenY]);
 
   useEffect(() => {
+    isPlayingSv.value = isPlaying;
+    if (isScrubbingSv.value) return;
     if (isPlaying) {
       rotation.value = withRepeat(
         withTiming(rotation.value + 1, {
@@ -507,7 +568,7 @@ export default function VinylPlayer() {
   }, [isPlaying]);
 
   const discAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${rotation.value * 360}deg` }],
+    transform: [{ rotate: `${rotation.value * 360}deg` }, { scale: scrubScale.value }],
   }));
 
   const coverAnimatedStyle = useAnimatedStyle(() => ({
@@ -518,12 +579,70 @@ export default function VinylPlayer() {
     transform: [{ rotate: `${armAngle.value}deg` }],
   }));
 
-  const discGesture = Gesture.Pan().onEnd((e) => {
+  const discCx = layout.discLeft + layout.discSize / 2;
+  const discCy = layout.discTop + layout.discSize / 2;
+
+  const scrubGesture = Gesture.Pan()
+    .activateAfterLongPress(100)
+    .onStart((e) => {
+      if (durationSv.value <= 0) {
+        scrubActive.value = false;
+        return;
+      }
+
+      scrubActive.value = true;
+      isScrubbingSv.value = true;
+      cancelAnimation(rotation);
+
+      scrubBaseRotation.value = rotation.value;
+      scrubStartProgress.value = progressSv.value;
+      scrubAccumulated.value = 0;
+      const a = Math.atan2(e.absoluteY - discCy, e.absoluteX - discCx);
+      scrubPrevAngle.value = a;
+
+      scrubTarget.value = progressSv.value;
+      scrubScale.value = withTiming(1.04, { duration: 180 });
+      runOnJS(onScrubEngage)();
+    })
+    .onUpdate((e) => {
+      if (!scrubActive.value) return;
+      const raw = Math.atan2(e.absoluteY - discCy, e.absoluteX - discCx);
+      let delta = raw - scrubPrevAngle.value;
+      if (delta > Math.PI) delta -= 2 * Math.PI;
+      else if (delta < -Math.PI) delta += 2 * Math.PI;
+      scrubAccumulated.value += delta;
+      scrubPrevAngle.value = raw;
+
+      rotation.value = scrubBaseRotation.value + scrubAccumulated.value / (2 * Math.PI);
+
+      const frac = scrubAccumulated.value / Math.PI;
+      let target = scrubStartProgress.value + frac * durationSv.value;
+      if (target < 0) target = 0;
+      if (target > durationSv.value) target = durationSv.value;
+      scrubTarget.value = target;
+      runOnJS(scrubSeekThrottled)(target);
+    })
+    .onFinalize(() => {
+      if (!scrubActive.value) return;
+      scrubActive.value = false;
+      isScrubbingSv.value = false;
+      scrubScale.value = withTiming(1, { duration: 100});
+      progressSv.value = scrubTarget.value;
+      runOnJS(finalizeScrub)(scrubTarget.value);
+      if (isPlayingSv.value) {
+        rotation.value = withRepeat (
+          withTiming(rotation.value + 1, { duration: 12000, easing: Easing.linear }),
+          -1,
+          false
+        );
+      }
+    });
+
+  const swipeGesture = Gesture.Pan().onEnd((e) => {
     if (e.translationX > 60) {
       runOnJS(handleManualNext)();
     } else if (e.translationX < -60) {
       const now = Date.now();
-
       if (lastSwipeLeft.current && now - lastSwipeLeft.current < 1500) {
         runOnJS(handleManualPrevious)();
         lastSwipeLeft.current = null;
@@ -533,6 +652,7 @@ export default function VinylPlayer() {
       }
     }
   });
+  const discGesture = Gesture.Exclusive(scrubGesture, swipeGesture);
 
   const coverGesture = Gesture.Pan().onEnd((e) => {
     if (e.translationY > 40 && !isLooping.current) {
