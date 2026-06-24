@@ -4,7 +4,16 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { type ColorValue, Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import {
+  type ColorValue,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
   cancelAnimation,
@@ -101,6 +110,8 @@ function getLayout(width: number, height: number) {
     discTop,
     hiddenY,
     isLandscape,
+    screenHeight: height,
+    screenWidth: width,
   };
 }
 
@@ -204,6 +215,7 @@ export default function VinylPlayer() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [trackInfo, setTrackInfo] = useState({ title: '', album: '', artist: '' });
   const [rimAccentColor, setRimAccentColor] = useState<ColorValue>(getRandomRimAccentColor());
+  const [isInsertOpen, setIsInsertOpen] = useState(false);
 
   const [playerStatsSnapshot, setPlayerStatsSnapshot] = useState<PlayerStatsSnapshot>({
     trackId: null,
@@ -218,6 +230,7 @@ export default function VinylPlayer() {
   const [topGrad, setTopGrad] = useState<GradientColors>(FALLBACK_GRADIENT);
 
   const gradFade = useSharedValue(1);
+  const insertProgress = useSharedValue(0);
   const token = auth?.accessToken ?? null;
 
   const { currentStats } = useTrackStats(playerStatsSnapshot);
@@ -235,9 +248,15 @@ export default function VinylPlayer() {
   const scrubPrevAngle = useSharedValue(0);
   const scrubTarget = useSharedValue(0);
 
+  const rotation = useSharedValue(0);
+  const coverY = useSharedValue(layout.hiddenY);
+  const armAngle = useSharedValue(ARM_REST_DEG);
+
   const lastSeekRef = useRef(0);
   const suppressPollUntilRef = useRef(0);
   const suppressRepeatSyncUntilRef = useRef(0);
+  const isLooping = useRef(false);
+  const lastSwipeLeft = useRef<number | null>(null);
 
   const [request, response, promptAsync] = useAuthRequest(
     {
@@ -506,6 +525,39 @@ export default function VinylPlayer() {
     opacity: gradFade.value,
   }));
 
+  const insertBackdropStyle = useAnimatedStyle(() => ({
+    opacity: insertProgress.value,
+  }));
+
+  const insertBookStyle = useAnimatedStyle(() => ({
+    opacity: insertProgress.value,
+    transform: [{ translateY: (1 - insertProgress.value) * 18 }, { scale: 0.92 + insertProgress.value * 0.08 }],
+  }));
+
+  const openInsert = useCallback(() => {
+    setIsInsertOpen(true);
+
+    insertProgress.value = withTiming(1, {
+      duration: 360,
+      easing: SOFT_EASING,
+    });
+  }, [insertProgress]);
+
+  const closeInsert = useCallback(() => {
+    insertProgress.value = withTiming(
+      0,
+      {
+        duration: 260,
+        easing: SOFT_EASING,
+      },
+      (finished) => {
+        if (finished) {
+          runOnJS(setIsInsertOpen)(false);
+        }
+      }
+    );
+  }, [insertProgress]);
+
   const sendCommand = useCallback(
     async (method: 'POST' | 'PUT', endpoint: string) => {
       const accessToken = await getValidAccessToken();
@@ -605,13 +657,6 @@ export default function VinylPlayer() {
       // Ignore haptic failures.
     }
   }, []);
-
-  const rotation = useSharedValue(0);
-  const coverY = useSharedValue(layout.hiddenY);
-  const armAngle = useSharedValue(ARM_REST_DEG);
-
-  const isLooping = useRef(false);
-  const lastSwipeLeft = useRef<number | null>(null);
 
   useEffect(() => {
     if (!isLooping.current) {
@@ -809,43 +854,118 @@ export default function VinylPlayer() {
         <LinearGradient colors={bottomGrad} style={StyleSheet.absoluteFill} />
         <AnimatedGradient colors={topGrad} style={[StyleSheet.absoluteFill, topGradStyle]} />
 
-        <View style={styles.albumWrapper}>
+        <Pressable style={styles.albumWrapper} delayLongPress={420} onLongPress={openInsert}>
           <Image source={{ uri: albumArt }} style={styles.albumArt} />
-        </View>
 
-        <View style={styles.pressingNotesCard}>
-          <Text style={styles.pressingNotesLabel}>PRESSING NOTES</Text>
-
-          <Text style={styles.pressingNotesTitle} numberOfLines={1}>
-            {trackInfo.title || trackInfo.album || 'No track loaded'}
-          </Text>
-
-          <View style={styles.pressingNotesDivider} />
-
-          <View style={styles.pressingNotesRow}>
-            <Text style={styles.pressingNotesKey}>First spun</Text>
-            <Text style={styles.pressingNotesValue}>
-              {currentStats ? formatShortDate(currentStats.firstPlayedAt) : '—'}
-            </Text>
+          <View style={styles.sleeveHint}>
+            <Text style={styles.sleeveHintText}>hold sleeve</Text>
           </View>
+        </Pressable>
 
-          <View style={styles.pressingNotesRow}>
-            <Text style={styles.pressingNotesKey}>Times on turntable</Text>
-            <Text style={styles.pressingNotesValue}>{currentStats ? currentStats.playCount : '—'}</Text>
-          </View>
+        {isInsertOpen ? (
+          <Animated.View style={[styles.insertOverlay, insertBackdropStyle]}>
+            <Pressable style={styles.insertBackdrop} onPress={closeInsert} />
 
-          <View style={styles.pressingNotesRow}>
-            <Text style={styles.pressingNotesKey}>Needle time</Text>
-            <Text style={styles.pressingNotesValue}>
-              {currentStats ? formatNeedleTime(currentStats.totalMs) : '—'}
-            </Text>
-          </View>
+            <Animated.View style={[styles.insertBook, insertBookStyle]}>
+              <View style={styles.insertSpine} />
 
-          <View style={styles.pressingNotesRow}>
-            <Text style={styles.pressingNotesKey}>Loop rituals</Text>
-            <Text style={styles.pressingNotesValue}>{currentStats ? currentStats.loopCount : '—'}</Text>
-          </View>
-        </View>
+              <View style={[styles.insertPage, styles.insertLeftPage]}>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  <Text style={styles.insertStamp}>VINYL INSERT</Text>
+
+                  <Text style={styles.insertPageTitle}>Lyric Sheet</Text>
+
+                  <Text style={styles.insertTrackTitle}>{trackInfo.title || 'Unknown Track'}</Text>
+
+                  <Text style={styles.insertSubTitle}>
+                    {trackInfo.artist || 'Unknown Artist'} · {trackInfo.album || 'Unknown Album'}
+                  </Text>
+
+                  <View style={styles.insertRule} />
+
+                  <Text style={styles.lyricText}>
+                    Lyrics are not pressed into this copy yet.
+                    {'\n\n'}
+                    This side will become the lyric sheet once we add a lyrics source.
+                    {'\n\n'}
+                    For now, this page is the physical placeholder: track title, artist, album, and liner note space.
+                    {'\n\n'}
+                    Hold the sleeve to open.
+                    {'\n'}
+                    Tap outside the insert to close.
+                  </Text>
+
+                  <View style={styles.noteBox}>
+                    <Text style={styles.noteBoxLabel}>LINER NOTE</Text>
+                    <Text style={styles.noteBoxText}>
+                      This record has been played on your turntable. Stats are printed on the right page.
+                    </Text>
+                  </View>
+                </ScrollView>
+              </View>
+
+              <View style={[styles.insertPage, styles.insertRightPage]}>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  <Text style={styles.insertStamp}>PRESSING NOTES</Text>
+
+                  <Text style={styles.insertPageTitle}>Turntable Stats</Text>
+
+                  <Text style={styles.insertTrackTitle}>{trackInfo.title || 'Unknown Track'}</Text>
+
+                  <Text style={styles.insertSubTitle}>
+                    {trackInfo.artist || 'Unknown Artist'} · {trackInfo.album || 'Unknown Album'}
+                  </Text>
+
+                  <View style={styles.insertRule} />
+
+                  <View style={styles.bigStatBlock}>
+                    <Text style={styles.bigStatValue}>{currentStats ? currentStats.playCount : '—'}</Text>
+                    <Text style={styles.bigStatLabel}>Times on turntable</Text>
+                  </View>
+
+                  <View style={styles.statsGrid}>
+                    <View style={styles.statCell}>
+                      <Text style={styles.statCellLabel}>First spun</Text>
+                      <Text style={styles.statCellValue}>
+                        {currentStats ? formatShortDate(currentStats.firstPlayedAt) : '—'}
+                      </Text>
+                    </View>
+
+                    <View style={styles.statCell}>
+                      <Text style={styles.statCellLabel}>Needle time</Text>
+                      <Text style={styles.statCellValue}>
+                        {currentStats ? formatNeedleTime(currentStats.totalMs) : '—'}
+                      </Text>
+                    </View>
+
+                    <View style={styles.statCell}>
+                      <Text style={styles.statCellLabel}>Loop rituals</Text>
+                      <Text style={styles.statCellValue}>{currentStats ? currentStats.loopCount : '—'}</Text>
+                    </View>
+
+                    <View style={styles.statCell}>
+                      <Text style={styles.statCellLabel}>Last played</Text>
+                      <Text style={styles.statCellValue}>
+                        {currentStats ? formatShortDate(currentStats.lastPlayedAt) : '—'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.noteBox}>
+                    <Text style={styles.noteBoxLabel}>TURNTABLE MEMORY</Text>
+                    <Text style={styles.noteBoxText}>
+                      These stats only count when this Vinyl app is open and watching playback.
+                    </Text>
+                  </View>
+
+                  <Pressable style={styles.closeInsertButton} onPress={closeInsert}>
+                    <Text style={styles.closeInsertText}>close insert</Text>
+                  </Pressable>
+                </ScrollView>
+              </View>
+            </Animated.View>
+          </Animated.View>
+        ) : null}
 
         <GestureDetector gesture={discGesture}>
           <Animated.View style={[styles.discWrapper, discAnimatedStyle]}>
@@ -967,55 +1087,204 @@ function getStyles(layout: PlayerLayout) {
       borderWidth: 1,
       borderColor: 'rgba(255,255,255,0.18)',
     },
-    pressingNotesCard: {
+    sleeveHint: {
       position: 'absolute',
-      left: layout.albumLeft,
-      top: layout.albumTop + layout.albumSize + 16,
-      width: layout.albumSize,
-      minHeight: 138,
-      zIndex: 40,
-      paddingVertical: 12,
-      paddingHorizontal: 14,
-      borderRadius: 10,
-      backgroundColor: 'rgba(245,232,199,0.92)',
+      left: 8,
+      bottom: 8,
+      paddingVertical: 4,
+      paddingHorizontal: 8,
+      borderRadius: 999,
+      backgroundColor: 'rgba(0,0,0,0.44)',
       borderWidth: 1,
-      borderColor: 'rgba(80,55,30,0.32)',
-      boxShadow: '6px 10px 18px rgba(0,0,0,0.32)',
+      borderColor: 'rgba(255,255,255,0.12)',
     },
-    pressingNotesLabel: {
-      color: 'rgba(50,34,20,0.68)',
+    sleeveHintText: {
+      color: 'rgba(255,255,255,0.78)',
       fontSize: 10,
       fontWeight: '800',
+      letterSpacing: 0.8,
+      textTransform: 'uppercase',
+    },
+    insertOverlay: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 90,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    insertBackdrop: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0,0,0,0.58)',
+    },
+    insertBook: {
+      width: layout.isLandscape ? Math.min(layout.screenWidth * 0.76, 820) : layout.screenWidth * 0.9,
+      height: layout.isLandscape ? Math.min(layout.screenHeight * 0.72, 460) : layout.screenHeight * 0.72,
+      flexDirection: layout.isLandscape ? 'row' : 'column',
+      borderRadius: 16,
+      overflow: 'hidden',
+      backgroundColor: 'rgba(238,222,185,1)',
+      borderWidth: 1,
+      borderColor: 'rgba(95,70,38,0.38)',
+      boxShadow: '14px 22px 42px rgba(0,0,0,0.52)',
+    },
+    insertSpine: {
+      position: 'absolute',
+      left: layout.isLandscape ? '50%' : 0,
+      top: layout.isLandscape ? 0 : '50%',
+      width: layout.isLandscape ? 2 : '100%',
+      height: layout.isLandscape ? '100%' : 2,
+      backgroundColor: 'rgba(92,63,31,0.32)',
+      zIndex: 4,
+    },
+    insertPage: {
+      flex: 1,
+      paddingVertical: 22,
+      paddingHorizontal: 24,
+    },
+    insertLeftPage: {
+      backgroundColor: 'rgba(242,229,195,1)',
+      borderRightWidth: layout.isLandscape ? 1 : 0,
+      borderRightColor: 'rgba(95,70,38,0.18)',
+    },
+    insertRightPage: {
+      backgroundColor: 'rgba(235,218,181,1)',
+    },
+    insertStamp: {
+      alignSelf: 'flex-start',
+      color: 'rgba(78,49,24,0.58)',
+      fontSize: 10,
+      fontWeight: '900',
+      letterSpacing: 1.8,
+      textTransform: 'uppercase',
+      borderWidth: 1,
+      borderColor: 'rgba(78,49,24,0.28)',
+      paddingVertical: 4,
+      paddingHorizontal: 8,
+      marginBottom: 14,
+    },
+    insertPageTitle: {
+      color: 'rgba(39,27,16,0.95)',
+      fontSize: 24,
+      fontWeight: '900',
+      letterSpacing: 0.2,
+      marginBottom: 8,
+    },
+    insertTrackTitle: {
+      color: 'rgba(39,27,16,0.94)',
+      fontSize: 17,
+      fontWeight: '900',
+      marginBottom: 4,
+    },
+    insertSubTitle: {
+      color: 'rgba(63,43,25,0.68)',
+      fontSize: 12,
+      fontWeight: '700',
+      lineHeight: 17,
+    },
+    insertRule: {
+      height: 1,
+      backgroundColor: 'rgba(85,58,31,0.24)',
+      marginVertical: 16,
+    },
+    lyricText: {
+      color: 'rgba(38,27,18,0.78)',
+      fontSize: 14,
+      fontWeight: '600',
+      lineHeight: 22,
+    },
+    noteBox: {
+      marginTop: 18,
+      padding: 12,
+      borderRadius: 10,
+      backgroundColor: 'rgba(255,248,224,0.42)',
+      borderWidth: 1,
+      borderColor: 'rgba(84,58,30,0.18)',
+    },
+    noteBoxLabel: {
+      color: 'rgba(75,48,23,0.58)',
+      fontSize: 9,
+      fontWeight: '900',
       letterSpacing: 1.4,
+      marginBottom: 6,
+    },
+    noteBoxText: {
+      color: 'rgba(39,27,16,0.76)',
+      fontSize: 12,
+      fontWeight: '700',
+      lineHeight: 18,
+    },
+    bigStatBlock: {
+      paddingVertical: 14,
+      paddingHorizontal: 14,
+      borderRadius: 14,
+      backgroundColor: 'rgba(255,248,224,0.44)',
+      borderWidth: 1,
+      borderColor: 'rgba(84,58,30,0.18)',
+      marginBottom: 14,
+    },
+    bigStatValue: {
+      color: 'rgba(37,25,15,0.98)',
+      fontSize: 42,
+      fontWeight: '900',
+      lineHeight: 46,
+    },
+    bigStatLabel: {
+      color: 'rgba(64,42,23,0.68)',
+      fontSize: 12,
+      fontWeight: '900',
+      letterSpacing: 0.8,
+      textTransform: 'uppercase',
+    },
+    statsGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 10,
+    },
+    statCell: {
+      width: '47%',
+      paddingVertical: 11,
+      paddingHorizontal: 12,
+      borderRadius: 12,
+      backgroundColor: 'rgba(255,248,224,0.32)',
+      borderWidth: 1,
+      borderColor: 'rgba(84,58,30,0.14)',
+    },
+    statCellLabel: {
+      color: 'rgba(72,47,26,0.62)',
+      fontSize: 10,
+      fontWeight: '900',
+      letterSpacing: 0.7,
+      textTransform: 'uppercase',
       marginBottom: 5,
     },
-    pressingNotesTitle: {
-      color: 'rgba(35,24,16,0.94)',
-      fontSize: 13,
-      fontWeight: '800',
-      marginBottom: 7,
+    statCellValue: {
+      color: 'rgba(35,24,14,0.96)',
+      fontSize: 15,
+      fontWeight: '900',
     },
-    pressingNotesDivider: {
-      height: 1,
-      backgroundColor: 'rgba(80,55,30,0.22)',
-      marginBottom: 7,
+    closeInsertButton: {
+      alignSelf: 'flex-start',
+      marginTop: 18,
+      paddingVertical: 9,
+      paddingHorizontal: 14,
+      borderRadius: 999,
+      backgroundColor: 'rgba(58,38,21,0.12)',
+      borderWidth: 1,
+      borderColor: 'rgba(58,38,21,0.18)',
     },
-    pressingNotesRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      gap: 10,
-      marginTop: 5,
-    },
-    pressingNotesKey: {
-      color: 'rgba(45,32,22,0.66)',
-      fontSize: 11,
-      fontWeight: '700',
-    },
-    pressingNotesValue: {
-      color: 'rgba(28,20,14,0.94)',
+    closeInsertText: {
+      color: 'rgba(45,30,18,0.78)',
       fontSize: 11,
       fontWeight: '900',
+      letterSpacing: 1.1,
+      textTransform: 'uppercase',
     },
     discWrapper: {
       position: 'absolute',
