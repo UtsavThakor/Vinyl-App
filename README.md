@@ -26,6 +26,32 @@ A vinyl-inspired music controller PWA built with Expo and React Native Web. Conn
 - AsyncStorage for local persistence
 - Deployed as a static PWA on Vercel
 
+## Project Structure
+
+```
+vinylapp/
+├── assets/
+│   ├── images/          # App icons, splash screen, favicon
+│   └── sfx/             # Vinyl sound effects (.wav)
+│       ├── vinyl-lid-click.wav
+│       └── manual-record-change.wav
+│
+├── src/
+│   ├── app/
+│   │   ├── index.tsx        # Main vinyl player — entire UI and player logic
+│   │   ├── _layout.tsx      # Root layout (single screen, no tab bar)
+│   │   └── +html.tsx        # PWA HTML shell with Apple mobile web meta tags
+│   │
+│   └── hooks/
+│       ├── useTrackStats.ts  # Per-track stats engine (play count, needle time, loops)
+│       ├── useLyrics.ts      # Lyrics fetcher via LRCLIB with AsyncStorage cache
+│       └── useVinylSfx.ts    # Sound effects and haptics
+│
+├── spotify.ts           # Spotify CLIENT_ID, scopes, discovery, redirect URI logic
+├── app.json             # Expo config
+├── vercel.json          # Vercel build + rewrite config
+└── package.json
+```
 ## Setup
 
 ### Spotify
