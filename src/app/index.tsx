@@ -88,6 +88,29 @@ const TOKEN_STORAGE_KEY = 'spotify_auth';
 const LEGACY_TOKEN_STORAGE_KEY = 'spotify_token';
 const TOKEN_REFRESH_MARGIN_MS = 60 * 1000;
 
+const SPINE_PALETTE = [
+  { bg: '#7c2d2d', text: '#f3e3d0' },
+  { bg: '#2d3f5c', text: '#e8eef5' },
+  { bg: '#2f4a3a', text: '#e3efe6' },
+  { bg: '#8a6d2f', text: '#fbf3dd' },
+  { bg: '#3a3a42', text: '#e8e8ee' },
+  { bg: '#6b3a52', text: '#f5e3ee' },
+  { bg: '#2f5a5a', text: '#e0f0f0' },
+  { bg: '#a85a3a', text: '#fbe8dd' },
+  { bg: '#4a3a6b', text: '#ece3f5' },
+  { bg: '#5c5c2d', text: '#f3f3dd' },
+] as const;
+
+function getSpineColors(id: string) {
+  let hash = 0;
+  for(let i = 0; i < id.length; i++) {
+    hash = (hash * 31 + id.charCodeAt(i)) & 0xffffffff;
+  }
+  const idx = Math.abs(hash) % SPINE_PALETTE.length;
+  const offset = Math.abs(hash >> 3) % 3;
+  return { ...SPINE_PALETTE[idx], offset };
+}
+
 function getLayout(width: number, height: number) {
   const isLandscape = width > height;
   const shortSide = Math.min(width, height);
@@ -1215,26 +1238,33 @@ export default function VinylPlayer() {
                     >
                     {isLoadingTracks ? (
                       <Text style={styles.crateLoadingText}>digging through the crate…</Text>
-                    ) : openedBox.tracks.map((track) => (
+                  ) : openedBox.tracks.map((track) => {
+                    const sc = getSpineColors(track.id);
+                    return (
                       <Pressable
                         key={track.id}
-                        style={styles.trackSpine}
+                        style={[styles.trackSpine, { backgroundColor: sc.bg, marginTop: sc.offset * 3 }]}
                         onPress={async () => {
                           await playTrack(track.uri);
                           closeCrate();
                         }}
                       >
+                        <View style={[styles.trackSpineBand, { backgroundColor: sc.text }]} />
+                        <View style={styles.trackSpineLabelWrap}>
+                          <View style={styles.trackSpineLabelInner}>
+                            <Text style={[styles.trackSpineTitle, { color: sc.text }]} numberOfLines={1}>{track.title}</Text>
+                            <Text style={[styles.trackSpineArtist, { color: sc.text }]} numberOfLines={1}>{track.artist}</Text>
+                          </View>
+                        </View>
                         {track.albumArt ? (
                           <Image source={{ uri: track.albumArt }} style={styles.trackSpineArt} />
                         ) : (
                           <View style={[styles.trackSpineArt, styles.trackSpineArtFallback]} />
                         )}
-                        <View style={styles.trackSpineTextWrap}>
-                          <Text style={styles.trackSpineTitle} numberOfLines={1}>{track.title}</Text>
-                          <Text style={styles.trackSpineArtist} numberOfLines={1}>{track.artist}</Text>
-                        </View>
                       </Pressable>
-                    ))}
+                    );
+                  })}
+                    
                   </ScrollView>
                 </View>
               </View>
@@ -1251,6 +1281,11 @@ export default function VinylPlayer() {
                   <View style={styles.crateBoxInner}>
                     <Text style={styles.crateBoxLabel}>♥</Text>
                     <Text style={styles.crateBoxName}>Liked Vinyls</Text>
+                    <View style={styles.cratePeekRow}>
+                      {SPINE_PALETTE.slice(0, 6).map((c, i) => (
+                        <View key={i} style={[styles.cratePeekSpine, { backgroundColor: c.bg}]} />
+                      ))}
+                    </View>
                   </View>
                 </Pressable>
 
@@ -1847,61 +1882,71 @@ function getStyles(layout: PlayerLayout) {
       borderTopRightRadius: 4,
       zIndex: 2,
     },
-    trackSpineList: {
+    trackSpine: {
+      width: 46,
+      borderRadius: 3,
+      overflow: 'hidden',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingBottom: 6,
+      borderWidth: 1,
+      borderColor: 'rgba(0,0,0,0.3)',
+      boxShadow: 'inset 1.5px 0px 0px rgba(255,255,255,0.16), inset -2.5px 0px 4px rgba(0,0,0,0.4)',
+    },
+    trackSpineBand: {
+      width: '100%',
+      height: 6,
+      opacity: 0.85,
+    },
+    trackSpineLabelWrap: {
       flex: 1,
-      marginTop: 28,
-      marginLeft: 20,
-      marginRight: 20,
-      marginBottom: 20,
+      width: '100%',
+      alignItems: 'center',
+      justifyContent: 'center',
+      overflow: 'hidden',
+    },
+    trackSpineLabelInner: {
+      flexDirection: 'row',
+      alignItems: 'baseline',
+      width: 200,
+      gap: 8,
+      transform: [{ rotate: '-90deg' }],
+    },
+    trackSpineTitle: {
+      fontSize: 12,
+      fontWeight: '800',
+      flexShrink: 1,
+    },
+    trackSpineArtist: {
+      fontSize: 9,
+      fontWeight: '600',
+      opacity: 0.7,
+    },
+    trackSpineArt: {
+      width: 30,
+      height: 30,
+      borderRadius: 2,
+      marginTop: 6,
+    },
+    trackSpineArtFallback: {
+      backgroundColor: '#7a5520',
+    },
+    cratePeekRow: {
+      flexDirection: 'row',
+      gap: 2,
+      marginTop: 6,
+      height: 16,
+    },
+    cratePeekSpine: {
+      width: 4,
+      height: '100%',
+      borderRadius: 1,
     },
     trackSpineListContent: {
       flexDirection: 'row',
       alignItems: 'stretch',
       gap: 6,
       paddingVertical: 4,
-    },
-    trackSpine: {
-      width: 42,
-      flexDirection: 'column',
-      alignItems: 'center',
-      paddingTop: 8,
-      paddingBottom: 10,
-      borderRadius: 4,
-      backgroundColor: 'rgba(0,0,0,0.06)',
-      borderWidth: 1,
-      borderColor: 'rgba(42,26,14,0.15)',
-      boxShadow: '1px 0px 2px rgba(0,0,0,0.1)',
-    },
-    trackSpineArt: {
-      width: 30,
-      height: 30,
-      borderRadius: 2,
-      marginBottom: 8,
-    },
-    trackSpineArtFallback: {
-      backgroundColor: '#7a5520',
-    },
-    trackSpineTextWrap: {
-      flex: 1,
-      width: 20,
-      alignItems: 'center',
-      justifyContent: 'flex-start',
-      transform: [{ rotate: '90deg'}],
-    },
-    trackSpineTitle: {
-      color: '#2a1a0e',
-      fontSize: 12,
-      fontWeight: '800',
-      width: 140,
-      textAlign: 'left',
-    },
-    trackSpineArtist: {
-      color: 'rgba(42,26,14,0.6)',
-      fontSize: 10,
-      fontWeight: '600',
-      marginTop: 2,
-      textAlign: 'left',
-      width: 140,
     },
     crateLoadingText: {
       color: 'rgba(42,26,14,0.6)',
