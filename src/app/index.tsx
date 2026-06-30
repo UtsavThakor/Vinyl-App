@@ -691,7 +691,7 @@ export default function VinylPlayer() {
     setIsCrateOpen(true);
     fetchPlaylists();
 
-    crateTranslateX.value = withTiming(-layout.screenWidth, {
+    crateTranslateX.value = withTiming(layout.screenWidth, {
       duration: 420,
       easing: SOFT_EASING,
     });
@@ -1236,7 +1236,7 @@ export default function VinylPlayer() {
                   <View style={styles.crateBoxFlapRight} />
                   <View style={styles.crateBoxInner}>
                     <Text style={styles.crateBoxLabel}>♥</Text>
-                    <Text style={styles.crateBoxName}>Liked Songs</Text>
+                    <Text style={styles.crateBoxName}>Liked Vinyls</Text>
                   </View>
                 </Pressable>
 
@@ -1623,7 +1623,7 @@ function getStyles(layout: PlayerLayout) {
     },
     crateScreen: {
       position: 'absolute',
-      left: layout.screenWidth,
+      left: -layout.screenWidth,
       top: 0,
       width: layout.screenWidth,
       height: layout.screenHeight,
@@ -1674,7 +1674,7 @@ function getStyles(layout: PlayerLayout) {
       gap: 16,
     },
     crateBox: {
-      width: (layout.screenWidth - 48) / 2,
+      width: (layout.screenWidth - 56) / 2,
       aspectRatio: 1,
       backgroundColor: '#c8954a',
       borderRadius: 4,
