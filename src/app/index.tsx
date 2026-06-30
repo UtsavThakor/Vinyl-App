@@ -68,6 +68,21 @@ type PlayerStatsSnapshot = {
   isScrubbing: boolean;
 };
 
+type SpotifyPlaylist = {
+  id: string;
+  name: string;
+  imageUrl: string | null;
+  trackCount: number;
+};
+
+type SpotifyTrack = {
+  id: string;
+  title: string;
+  artist: string;
+  albumArt: string | null;
+  uri: string;
+};
+
 const FALLBACK_GRADIENT: GradientColors = ['#1a1a2e', '#16161f', '#0a0a0f'];
 const TOKEN_STORAGE_KEY = 'spotify_auth';
 const LEGACY_TOKEN_STORAGE_KEY = 'spotify_token';
@@ -226,6 +241,14 @@ export default function VinylPlayer() {
     isLooping: false,
     isScrubbing: false,
   });
+
+  const [isCrateOpen, setIsCrateOpen] = useState(false);
+  const [playlists, setPlaylists] = useState<SpotifyPlaylist[]>([]);
+  const [openedBox, setOpenedBox] = useState<{ type: 'playlist' | 'liked'; id: string; tracks: SpotifyTrack[] } | null>(null);
+  const [isLoadingTracks, setIsLoadingTracks] = useState(false);
+
+  const crateTranslateX = useSharedValue(0);
+  const drawerKnobScale = useSharedValue(1);
 
   const [bottomGrad, setBottomGrad] = useState<GradientColors>(FALLBACK_GRADIENT);
   const [topGrad, setTopGrad] = useState<GradientColors>(FALLBACK_GRADIENT);
@@ -509,6 +532,103 @@ export default function VinylPlayer() {
     return () => clearInterval(interval);
   }, [token, fetchNowPlaying]);
 
+  const fetchPlaylists = useCallback(async () => {
+    const accessToken = await getValidAccessToken();
+    if (!accessToken) return;
+
+    try {
+      const res = await fetch('https://api.spotify.com/v1/me/playlists?limit=20', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (res.status === 200) {
+        const data = await res.json();
+        const items: SpotifyPlaylist[] = (data.items || []).map((p: any) => ({
+          id: p.id,
+          name: p.name,
+          imageUrl: p.images?.[0]?.url || null,
+          trackCount: p.tracks?.total || 0,
+        }));
+        setPlaylists(items);
+      }
+    } catch (e) {
+      console.log('Playlists error:', e);
+    }
+  }, [getValidAccessToken]);
+
+  const fetchPlaylistTracks = useCallback(async (playlistId: string) => {
+    const accessToken = await getValidAccessToken();
+    if (!accessToken) return [];
+
+    try {
+      const res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=50`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (res.status === 200) {
+        const data = await res.json();
+        return (data.items || [])
+          .filter((item: any) => item?.track?.id)
+          .map((item: any) => ({
+            id: item.track.id,
+            title: item.track.name,
+            artist: item.track.artists?.[0]?.name || '',
+            albumArt: item.track.album?.images?.[0]?.url || null,
+            uri: item.track.uri,
+          })) as SpotifyTrack[];
+      }
+    } catch (e) {
+      console.log('Playlist tracks error:', e);
+    }
+    return [];
+  }, [getValidAccessToken]);
+
+  const fetchLikedTracks = useCallback(async () => {
+    const accessToken = await getValidAccessToken();
+    if (!accessToken) return [];
+
+    try {
+      const res = await fetch('https://api.spotify.com/v1/me/tracks?limit=50', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (res.status === 200) {
+        const data = await res.json();
+        return (data.items || [])
+          .filter((item: any) => item?.track?.id)
+          .map((item: any) => ({
+            id: item.track.id,
+            title: item.track.name,
+            artist: item.track.artists?.[0]?.name || '',
+            albumArt: item.track.album?.images?.[0]?.url || null,
+            uri: item.track.uri,
+          })) as SpotifyTrack[];
+      }
+    } catch (e) {
+      console.log('Liked tracks error:', e);
+    }
+    return [];
+  }, [getValidAccessToken]);
+
+  const playTrack = useCallback(async (uri: string) => {
+    const accessToken = await getValidAccessToken();
+    if (!accessToken) return;
+
+    try {
+      await fetch('https://api.spotify.com/v1/me/player/play', {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ uris: [uri] }),
+      });
+      setTimeout(fetchNowPlaying, 300);
+    } catch (e) {
+      console.log('Play track error:', e);
+    }
+  }, [getValidAccessToken, fetchNowPlaying]);
+
   useEffect(() => {
     let active = true;
 
@@ -566,6 +686,42 @@ export default function VinylPlayer() {
       }
     );
   }, [insertProgress]);
+
+  const openCrate = useCallback(() => {
+    setIsCrateOpen(true);
+    fetchPlaylists();
+
+    crateTranslateX.value = withTiming(-layout.screenWidth, {
+      duration: 420,
+      easing: SOFT_EASING,
+    });
+
+    try {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+  }, [fetchPlaylists, crateTranslateX, layout.screenWidth]);
+
+  const closeCrate = useCallback(() => {
+    setOpenedBox(null);
+
+    crateTranslateX.value = withTiming(0, {
+      duration: 380,
+      easing: SOFT_EASING,
+    }, (finished) => {
+      if (finished) runOnJS(setIsCrateOpen)(false);
+    });
+  }, [crateTranslateX]);
+
+  const openBox = useCallback(async (type: 'playlist' | 'liked', id: string) => {
+    setIsLoadingTracks(true);
+
+    const tracks = type === 'liked'
+      ? await fetchLikedTracks()
+      : await fetchPlaylistTracks(id);
+
+    setOpenedBox({ type, id, tracks });
+    setIsLoadingTracks(false);
+  }, [fetchLikedTracks, fetchPlaylistTracks]);
 
   const preventContextMenu = useCallback((event: any) => {
     event.preventDefault();
@@ -718,6 +874,10 @@ export default function VinylPlayer() {
     transform: [{ rotate: `${armAngle.value}deg` }],
   }));
 
+  const crateSlideStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: crateTranslateX.value }],
+  }));
+
   const discCx = layout.discLeft + layout.discSize / 2;
   const discCy = layout.discTop + layout.discSize / 2;
 
@@ -844,6 +1004,19 @@ export default function VinylPlayer() {
     }
   });
 
+  const drawerKnobGesture = Gesture.Pan()
+    .onUpdate((e) => {
+      if (e.translationX > 0) {
+        drawerKnobScale.value = 1 + Math.min(e.translationX / 200, 0.3);
+      }
+    })
+    .onEnd((e) => {
+      drawerKnobScale.value = withTiming(1, { duration: 200 });
+      if (e.translationX > 40) {
+        runOnJS(openCrate)();
+      }
+    });
+
   const rimString =
     trackInfo.title || trackInfo.artist
       ? `${trackInfo.title}  ✺  ${trackInfo.album}  ✺  ${trackInfo.artist}`
@@ -914,7 +1087,7 @@ export default function VinylPlayer() {
                     <Text style={styles.lyricMuted}>This pressing is instrumental — no lyric sheet.</Text>
                   ) : (
                     <Text style={styles.lyricMuted}>No lyric sheet found for this pressing.</Text>
-                  )}               
+                  )}
 
                   <View style={styles.noteBox}>
                     <Text style={styles.noteBoxLabel}>LINER NOTE</Text>
@@ -985,6 +1158,110 @@ export default function VinylPlayer() {
                 </ScrollView>
               </View>
             </Animated.View>
+          </Animated.View>
+        ) : null}
+
+        {/* Drawer knob — always visible on left edge */}
+        <GestureDetector gesture={drawerKnobGesture}>
+          <Animated.View style={styles.drawerHandle}>
+            <View style={styles.drawerKnob} />
+          </Animated.View>
+        </GestureDetector>
+
+        {/* Crate — slides in from left */}
+        {isCrateOpen ? (
+          <Animated.View style={[styles.crateScreen, crateSlideStyle]}>
+
+            <View style={styles.crateBackground} />
+
+            <View style={styles.crateHeader}>
+              <Text style={styles.crateHeaderTitle}>Your Crate</Text>
+              <Pressable onPress={closeCrate} style={styles.crateCloseBtn}>
+                <Text style={styles.crateCloseBtnText}>close</Text>
+              </Pressable>
+            </View>
+
+            {openedBox ? (
+              <View style={styles.crateBoxOpen}>
+                <View style={styles.crateBoxOpenHeader}>
+                  <Pressable onPress={() => setOpenedBox(null)} style={styles.crateBackBtn}>
+                    <Text style={styles.crateBackBtnText}>← back</Text>
+                  </Pressable>
+                  <Text style={styles.crateBoxOpenTitle}>
+                    {openedBox.type === 'liked' ? 'Liked Songs' : playlists.find(p => p.id === openedBox.id)?.name || ''}
+                  </Text>
+                </View>
+
+                <View style={styles.cardboardBox}>
+                  <View style={styles.cardboardFlapTop} />
+                  <View style={styles.cardboardFlapLeft} />
+                  <View style={styles.cardboardFlapRight} />
+                  <View style={styles.cardboardFlapBottom} />
+
+                  <ScrollView style={styles.trackSpineList} showsVerticalScrollIndicator={false}>
+                    {isLoadingTracks ? (
+                      <Text style={styles.crateLoadingText}>digging through the crate…</Text>
+                    ) : openedBox.tracks.map((track) => (
+                      <Pressable
+                        key={track.id}
+                        style={styles.trackSpine}
+                        onPress={async () => {
+                          await playTrack(track.uri);
+                          closeCrate();
+                        }}
+                      >
+                        {track.albumArt ? (
+                          <Image source={{ uri: track.albumArt }} style={styles.trackSpineArt} />
+                        ) : (
+                          <View style={[styles.trackSpineArt, styles.trackSpineArtFallback]} />
+                        )}
+                        <View style={styles.trackSpineInfo}>
+                          <Text style={styles.trackSpineTitle} numberOfLines={1}>{track.title}</Text>
+                          <Text style={styles.trackSpineArtist} numberOfLines={1}>{track.artist}</Text>
+                        </View>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              </View>
+            ) : (
+              <ScrollView style={styles.crateGrid} contentContainerStyle={styles.crateGridContent}>
+
+                <Pressable
+                  style={styles.crateBox}
+                  onPress={() => openBox('liked', 'liked')}
+                >
+                  <View style={styles.crateBoxFlapTop} />
+                  <View style={styles.crateBoxFlapLeft} />
+                  <View style={styles.crateBoxFlapRight} />
+                  <View style={styles.crateBoxInner}>
+                    <Text style={styles.crateBoxLabel}>♥</Text>
+                    <Text style={styles.crateBoxName}>Liked Songs</Text>
+                  </View>
+                </Pressable>
+
+                {playlists.map((playlist) => (
+                  <Pressable
+                    key={playlist.id}
+                    style={styles.crateBox}
+                    onPress={() => openBox('playlist', playlist.id)}
+                  >
+                    <View style={styles.crateBoxFlapTop} />
+                    <View style={styles.crateBoxFlapLeft} />
+                    <View style={styles.crateBoxFlapRight} />
+                    <View style={styles.crateBoxInner}>
+                      {playlist.imageUrl ? (
+                        <Image source={{ uri: playlist.imageUrl }} style={styles.crateBoxArt} />
+                      ) : (
+                        <View style={[styles.crateBoxArt, styles.crateBoxArtFallback]} />
+                      )}
+                      <Text style={styles.crateBoxName} numberOfLines={2}>{playlist.name}</Text>
+                      <Text style={styles.crateBoxCount}>{playlist.trackCount} tracks</Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            )}
           </Animated.View>
         ) : null}
 
@@ -1227,7 +1504,7 @@ function getStyles(layout: PlayerLayout) {
       lineHeight: 22,
     },
     lyricMuted: {
-      color: 'rgba(63,43,25, 0.55)',
+      color: 'rgba(63,43,25,0.55)',
       fontFamily: 'Courier, monospace',
       fontSize: 13,
       fontWeight: '600',
@@ -1320,6 +1597,286 @@ function getStyles(layout: PlayerLayout) {
       fontWeight: '900',
       letterSpacing: 1.1,
       textTransform: 'uppercase',
+    },
+    drawerHandle: {
+      position: 'absolute',
+      left: 0,
+      top: '50%',
+      width: 18,
+      height: 64,
+      marginTop: -32,
+      zIndex: 50,
+      backgroundColor: '#2a1a0e',
+      borderTopRightRadius: 8,
+      borderBottomRightRadius: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+      boxShadow: '2px 0px 8px rgba(0,0,0,0.5)',
+    },
+    drawerKnob: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      backgroundColor: '#d4af37',
+      borderWidth: 1,
+      borderColor: 'rgba(255,220,100,0.5)',
+    },
+    crateScreen: {
+      position: 'absolute',
+      left: layout.screenWidth,
+      top: 0,
+      width: layout.screenWidth,
+      height: layout.screenHeight,
+      zIndex: 80,
+      backgroundColor: '#1a110a',
+    },
+    crateBackground: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: 'rgba(18,10,4,0.96)',
+    },
+    crateHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingTop: 56,
+      paddingHorizontal: 20,
+      paddingBottom: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: 'rgba(212,175,55,0.2)',
+    },
+    crateHeaderTitle: {
+      color: '#d4af37',
+      fontSize: 22,
+      fontWeight: '900',
+      letterSpacing: 1,
+    },
+    crateCloseBtn: {
+      paddingVertical: 6,
+      paddingHorizontal: 14,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: 'rgba(212,175,55,0.3)',
+    },
+    crateCloseBtnText: {
+      color: 'rgba(212,175,55,0.8)',
+      fontSize: 11,
+      fontWeight: '900',
+      letterSpacing: 1,
+      textTransform: 'uppercase',
+    },
+    crateGrid: {
+      flex: 1,
+    },
+    crateGridContent: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      padding: 16,
+      gap: 16,
+    },
+    crateBox: {
+      width: (layout.screenWidth - 48) / 2,
+      aspectRatio: 1,
+      backgroundColor: '#c8954a',
+      borderRadius: 4,
+      overflow: 'hidden',
+      position: 'relative',
+      boxShadow: '4px 6px 16px rgba(0,0,0,0.5)',
+    },
+    crateBoxFlapTop: {
+      position: 'absolute',
+      top: 0,
+      left: '10%',
+      width: '80%',
+      height: '20%',
+      backgroundColor: '#b5833a',
+      borderBottomLeftRadius: 4,
+      borderBottomRightRadius: 4,
+      zIndex: 2,
+    },
+    crateBoxFlapLeft: {
+      position: 'absolute',
+      left: 0,
+      top: '10%',
+      width: '18%',
+      height: '80%',
+      backgroundColor: '#a8762f',
+      borderTopRightRadius: 4,
+      borderBottomRightRadius: 4,
+      zIndex: 2,
+    },
+    crateBoxFlapRight: {
+      position: 'absolute',
+      right: 0,
+      top: '10%',
+      width: '18%',
+      height: '80%',
+      backgroundColor: '#a8762f',
+      borderTopLeftRadius: 4,
+      borderBottomLeftRadius: 4,
+      zIndex: 2,
+    },
+    crateBoxInner: {
+      position: 'absolute',
+      top: '22%',
+      left: '20%',
+      right: '20%',
+      bottom: '8%',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      zIndex: 3,
+    },
+    crateBoxArt: {
+      width: '70%',
+      aspectRatio: 1,
+      borderRadius: 3,
+    },
+    crateBoxArtFallback: {
+      backgroundColor: '#7a5520',
+    },
+    crateBoxLabel: {
+      color: '#d4af37',
+      fontSize: 28,
+    },
+    crateBoxName: {
+      color: '#2a1a0e',
+      fontSize: 11,
+      fontWeight: '900',
+      textAlign: 'center',
+      letterSpacing: 0.3,
+    },
+    crateBoxCount: {
+      color: 'rgba(42,26,14,0.6)',
+      fontSize: 9,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    crateBoxOpen: {
+      flex: 1,
+    },
+    crateBoxOpenHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 20,
+      paddingVertical: 14,
+      gap: 14,
+    },
+    crateBackBtn: {
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: 'rgba(212,175,55,0.3)',
+    },
+    crateBackBtnText: {
+      color: 'rgba(212,175,55,0.8)',
+      fontSize: 11,
+      fontWeight: '900',
+    },
+    crateBoxOpenTitle: {
+      color: '#d4af37',
+      fontSize: 16,
+      fontWeight: '900',
+      flex: 1,
+    },
+    cardboardBox: {
+      flex: 1,
+      margin: 16,
+      backgroundColor: '#c8954a',
+      borderRadius: 6,
+      overflow: 'hidden',
+      position: 'relative',
+      boxShadow: '4px 8px 20px rgba(0,0,0,0.5)',
+    },
+    cardboardFlapTop: {
+      position: 'absolute',
+      top: 0,
+      left: '5%',
+      width: '90%',
+      height: 28,
+      backgroundColor: '#b5833a',
+      borderBottomLeftRadius: 6,
+      borderBottomRightRadius: 6,
+      zIndex: 2,
+    },
+    cardboardFlapLeft: {
+      position: 'absolute',
+      left: 0,
+      top: 28,
+      width: 20,
+      bottom: 20,
+      backgroundColor: '#a8762f',
+      borderTopRightRadius: 4,
+      borderBottomRightRadius: 4,
+      zIndex: 2,
+    },
+    cardboardFlapRight: {
+      position: 'absolute',
+      right: 0,
+      top: 28,
+      width: 20,
+      bottom: 20,
+      backgroundColor: '#a8762f',
+      borderTopLeftRadius: 4,
+      borderBottomLeftRadius: 4,
+      zIndex: 2,
+    },
+    cardboardFlapBottom: {
+      position: 'absolute',
+      bottom: 0,
+      left: '5%',
+      width: '90%',
+      height: 20,
+      backgroundColor: '#b5833a',
+      borderTopLeftRadius: 4,
+      borderTopRightRadius: 4,
+      zIndex: 2,
+    },
+    trackSpineList: {
+      flex: 1,
+      marginTop: 28,
+      marginLeft: 20,
+      marginRight: 20,
+      marginBottom: 20,
+    },
+    trackSpine: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 10,
+      paddingHorizontal: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: 'rgba(42,26,14,0.15)',
+      gap: 10,
+    },
+    trackSpineArt: {
+      width: 36,
+      height: 36,
+      borderRadius: 3,
+    },
+    trackSpineArtFallback: {
+      backgroundColor: '#7a5520',
+    },
+    trackSpineInfo: {
+      flex: 1,
+    },
+    trackSpineTitle: {
+      color: '#2a1a0e',
+      fontSize: 13,
+      fontWeight: '800',
+    },
+    trackSpineArtist: {
+      color: 'rgba(42,26,14,0.6)',
+      fontSize: 11,
+      fontWeight: '600',
+      marginTop: 2,
+    },
+    crateLoadingText: {
+      color: 'rgba(42,26,14,0.6)',
+      fontSize: 13,
+      fontStyle: 'italic',
+      fontWeight: '600',
+      padding: 20,
     },
     discWrapper: {
       position: 'absolute',

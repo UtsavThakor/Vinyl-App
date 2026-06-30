@@ -10,6 +10,8 @@ export const SCOPES = [
   'user-read-currently-playing',
   'user-read-playback-state',
   'user-modify-playback-state',
+  'user-library-read',
+  'playlist-read-private',
 ];
 
 // Spotify's auth endpoints
