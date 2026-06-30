@@ -534,22 +534,32 @@ export default function VinylPlayer() {
 
   const fetchPlaylists = useCallback(async () => {
     const accessToken = await getValidAccessToken();
-    if (!accessToken) return;
+    if (!accessToken) {
+      console.log('fetchPlaylist: no access token');
+      return;
+    }
 
     try {
       const res = await fetch('https://api.spotify.com/v1/me/playlists?limit=20', {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
 
+      console.log('fetchPlaylist status:', res.status);
+
       if (res.status === 200) {
         const data = await res.json();
+        console.log('fetchPlaylist raw items:', data.items?.length, data);
         const items: SpotifyPlaylist[] = (data.items || []).map((p: any) => ({
           id: p.id,
           name: p.name,
           imageUrl: p.images?.[0]?.url || null,
           trackCount: p.tracks?.total || 0,
         }));
+        console.log('fetchPlaylists mapped items:', items);
         setPlaylists(items);
+      } else {
+        const errBody = await res.text();
+        console.log('fetchPlaylists failed body:', errBody);
       }
     } catch (e) {
       console.log('Playlists error:', e);
@@ -1188,7 +1198,7 @@ export default function VinylPlayer() {
                     <Text style={styles.crateBackBtnText}>← back</Text>
                   </Pressable>
                   <Text style={styles.crateBoxOpenTitle}>
-                    {openedBox.type === 'liked' ? 'Liked Songs' : playlists.find(p => p.id === openedBox.id)?.name || ''}
+                    {openedBox.type === 'liked' ? 'Liked Vinyls' : playlists.find(p => p.id === openedBox.id)?.name || ''}
                   </Text>
                 </View>
 
@@ -1198,7 +1208,11 @@ export default function VinylPlayer() {
                   <View style={styles.cardboardFlapRight} />
                   <View style={styles.cardboardFlapBottom} />
 
-                  <ScrollView style={styles.trackSpineList} showsVerticalScrollIndicator={false}>
+                  <ScrollView   horizontal
+                    style={styles.trackSpineList}
+                    contentContainerStyle={styles.trackSpineListContent}
+                    showsHorizontalScrollIndicator={false}
+                    >
                     {isLoadingTracks ? (
                       <Text style={styles.crateLoadingText}>digging through the crate…</Text>
                     ) : openedBox.tracks.map((track) => (
@@ -1215,7 +1229,7 @@ export default function VinylPlayer() {
                         ) : (
                           <View style={[styles.trackSpineArt, styles.trackSpineArtFallback]} />
                         )}
-                        <View style={styles.trackSpineInfo}>
+                        <View style={styles.trackSpineTextWrap}>
                           <Text style={styles.trackSpineTitle} numberOfLines={1}>{track.title}</Text>
                           <Text style={styles.trackSpineArtist} numberOfLines={1}>{track.artist}</Text>
                         </View>
@@ -1674,7 +1688,7 @@ function getStyles(layout: PlayerLayout) {
       gap: 16,
     },
     crateBox: {
-      width: (layout.screenWidth - 56) / 2,
+      width: (layout.screenWidth - 64) / 3,
       aspectRatio: 1,
       backgroundColor: '#c8954a',
       borderRadius: 4,
@@ -1840,36 +1854,54 @@ function getStyles(layout: PlayerLayout) {
       marginRight: 20,
       marginBottom: 20,
     },
-    trackSpine: {
+    trackSpineListContent: {
       flexDirection: 'row',
+      alignItems: 'stretch',
+      gap: 6,
+      paddingVertical: 4,
+    },
+    trackSpine: {
+      width: 42,
+      flexDirection: 'column',
       alignItems: 'center',
-      paddingVertical: 10,
-      paddingHorizontal: 10,
-      borderBottomWidth: 1,
-      borderBottomColor: 'rgba(42,26,14,0.15)',
-      gap: 10,
+      paddingTop: 8,
+      paddingBottom: 10,
+      borderRadius: 4,
+      backgroundColor: 'rgba(0,0,0,0.06)',
+      borderWidth: 1,
+      borderColor: 'rgba(42,26,14,0.15)',
+      boxShadow: '1px 0px 2px rgba(0,0,0,0.1)',
     },
     trackSpineArt: {
-      width: 36,
-      height: 36,
-      borderRadius: 3,
+      width: 30,
+      height: 30,
+      borderRadius: 2,
+      marginBottom: 8,
     },
     trackSpineArtFallback: {
       backgroundColor: '#7a5520',
     },
-    trackSpineInfo: {
+    trackSpineTextWrap: {
       flex: 1,
+      width: 20,
+      alignItems: 'center',
+      justifyContent: 'flex-start',
+      transform: [{ rotate: '90deg'}],
     },
     trackSpineTitle: {
       color: '#2a1a0e',
-      fontSize: 13,
+      fontSize: 12,
       fontWeight: '800',
+      width: 140,
+      textAlign: 'left',
     },
     trackSpineArtist: {
       color: 'rgba(42,26,14,0.6)',
-      fontSize: 11,
+      fontSize: 10,
       fontWeight: '600',
       marginTop: 2,
+      textAlign: 'left',
+      width: 140,
     },
     crateLoadingText: {
       color: 'rgba(42,26,14,0.6)',
