@@ -1964,6 +1964,16 @@ function getStyles(layout: PlayerLayout) {
       height: '100%',
       borderRadius: 1,
     },
+    trackSpineList: {
+      flex: 1,
+      marginHorizontal: 24,
+      marginTop: 34,
+      marginBottom: 28,
+      backgroundColor: 'rgba(8,6,6,0.30)',
+      borderRadius: 4,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.06)',
+    },
     trackSpineListContent: {
       flexDirection: 'row',
       alignItems: 'stretch',
