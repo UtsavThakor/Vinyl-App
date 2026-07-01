@@ -280,10 +280,15 @@ export default function VinylPlayer() {
 
   const [isCrateOpen, setIsCrateOpen] = useState(false);
   const [playlists, setPlaylists] = useState<SpotifyPlaylist[]>([]);
-  const [openedBox, setOpenedBox] = useState<{ type: 'playlist' | 'liked'; id: string; tracks: SpotifyTrack[] } | null>(
-    null
-  );
+  const [openedBox, setOpenedBox] = useState<{
+    type: 'playlist' | 'liked';
+    id: string;
+    tracks: SpotifyTrack[];
+    nextUrl: string | null;
+  } | null>(null);
+
   const [isLoadingTracks, setIsLoadingTracks] = useState(false);
+  const [isLoadingMoreTracks, setIsLoadingMoreTracks] = useState(false);
   const [selectedTrackIndex, setSelectedTrackIndex] = useState(0);
 
   const crateTranslateX = useSharedValue(0);
@@ -667,91 +672,82 @@ export default function VinylPlayer() {
     }
   }, [fetchPlaylistTrackCount, getValidAccessToken]);
 
-  const fetchPlaylistTracks = useCallback(
-    async (playlistId: string) => {
+  const mapSpotifyTracks = useCallback((items: any[]) => {
+    return (items || [])
+      .filter((item: any) => item?.track?.id && item?.track?.uri)
+      .map((item: any) => ({
+        id: item.track.id,
+        title: item.track.name || 'Unknown Track',
+        artist: item.track.artists?.[0]?.name || '',
+        albumArt: item.track.album?.images?.[0]?.url || null,
+        uri: item.track.uri,
+      })) as SpotifyTrack[];
+  }, []);
+
+  const fetchTrackPage = useCallback(
+    async (url: string) => {
       const accessToken = await getValidAccessToken();
-      if (!accessToken) return [];
 
-      try {
-        let url: string | null =
-          `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100&fields=items(track(id,name,uri,artists(name),album(images(url)))),next`;
-        const tracks: SpotifyTrack[] = [];
-
-        while (url) {
-          const res = await fetch(url, {
-            headers: { Authorization: `Bearer ${accessToken}` },
-          });
-
-          if (!res.ok) break;
-
-          const data = await res.json();
-
-          const pageTracks = (data.items || [])
-            .filter((item: any) => item?.track?.id && item?.track?.uri)
-            .map((item: any) => ({
-              id: item.track.id,
-              title: item.track.name,
-              artist: item.track.artists?.[0]?.name || '',
-              albumArt: item.track.album?.images?.[0]?.url || null,
-              uri: item.track.uri,
-            })) as SpotifyTrack[];
-
-          tracks.push(...pageTracks);
-          url = data.next || null;
-        }
-
-        setPlaylists((previous) =>
-          previous.map((playlist) => (playlist.id === playlistId ? { ...playlist, trackCount: tracks.length } : playlist))
-        );
-
-        return tracks;
-      } catch (e) {
-        console.log('Playlist tracks error:', e);
+      if (!accessToken) {
+        return { tracks: [] as SpotifyTrack[], nextUrl: null as string | null };
       }
 
-      return [];
-    },
-    [getValidAccessToken]
-  );
-
-  const fetchLikedTracks = useCallback(async () => {
-    const accessToken = await getValidAccessToken();
-    if (!accessToken) return [];
-
-    try {
-      let url: string | null = 'https://api.spotify.com/v1/me/tracks?limit=50';
-      const tracks: SpotifyTrack[] = [];
-
-      while (url) {
+      try {
         const res = await fetch(url, {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
 
-        if (!res.ok) break;
+        if (!res.ok) {
+          const errorText = await res.text();
+          console.log('Track page fetch failed:', res.status, errorText);
+
+          return { tracks: [] as SpotifyTrack[], nextUrl: null as string | null };
+        }
 
         const data = await res.json();
 
-        const pageTracks = (data.items || [])
-          .filter((item: any) => item?.track?.id && item?.track?.uri)
-          .map((item: any) => ({
-            id: item.track.id,
-            title: item.track.name,
-            artist: item.track.artists?.[0]?.name || '',
-            albumArt: item.track.album?.images?.[0]?.url || null,
-            uri: item.track.uri,
-          })) as SpotifyTrack[];
+        return {
+          tracks: mapSpotifyTracks(data.items || []),
+          nextUrl: data.next || null,
+        };
+      } catch (e) {
+        console.log('Track page error:', e);
 
-        tracks.push(...pageTracks);
-        url = data.next || null;
+        return { tracks: [] as SpotifyTrack[], nextUrl: null as string | null };
       }
+    },
+    [getValidAccessToken, mapSpotifyTracks]
+  );
 
-      return tracks;
-    } catch (e) {
-      console.log('Liked tracks error:', e);
-    }
+  const fetchPlaylistTrackPage = useCallback(
+    async (playlistId: string, nextUrl?: string | null) => {
+      const url =
+        nextUrl ||
+        `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=50&market=from_token`;
 
-    return [];
-  }, [getValidAccessToken]);
+      const page = await fetchTrackPage(url);
+
+      setPlaylists((previous) =>
+        previous.map((playlist) =>
+          playlist.id === playlistId && page.tracks.length > 0
+            ? { ...playlist, trackCount: playlist.trackCount === null ? page.tracks.length : playlist.trackCount }
+            : playlist
+        )
+      );
+
+      return page;
+    },
+    [fetchTrackPage]
+  );
+
+  const fetchLikedTrackPage = useCallback(
+    async (nextUrl?: string | null) => {
+      const url = nextUrl || 'https://api.spotify.com/v1/me/tracks?limit=50&market=from_token';
+
+      return fetchTrackPage(url);
+    },
+    [fetchTrackPage]
+  );
 
   const playTrack = useCallback(
     async (uri: string) => {
@@ -871,13 +867,56 @@ export default function VinylPlayer() {
       setIsLoadingTracks(true);
       setSelectedTrackIndex(0);
 
-      const tracks = type === 'liked' ? await fetchLikedTracks() : await fetchPlaylistTracks(id);
+      const firstPage = type === 'liked' ? await fetchLikedTrackPage() : await fetchPlaylistTrackPage(id);
 
-      setOpenedBox({ type, id, tracks });
+      setOpenedBox({
+        type,
+        id,
+        tracks: firstPage.tracks,
+        nextUrl: firstPage.nextUrl,
+      });
+
       setIsLoadingTracks(false);
     },
-    [fetchLikedTracks, fetchPlaylistTracks]
+    [fetchLikedTrackPage, fetchPlaylistTrackPage]
   );
+
+  const loadMoreOpenedBoxTracks = useCallback(async () => {
+    if (!openedBox?.nextUrl || isLoadingMoreTracks) return;
+
+    setIsLoadingMoreTracks(true);
+
+    const nextPage =
+      openedBox.type === 'liked'
+        ? await fetchLikedTrackPage(openedBox.nextUrl)
+        : await fetchPlaylistTrackPage(openedBox.id, openedBox.nextUrl);
+
+    setOpenedBox((current) => {
+      if (!current) return current;
+
+      const existingIds = new Set(current.tracks.map((track) => track.id));
+      const freshTracks = nextPage.tracks.filter((track) => !existingIds.has(track.id));
+
+      return {
+        ...current,
+        tracks: [...current.tracks, ...freshTracks],
+        nextUrl: nextPage.nextUrl,
+      };
+    });
+
+    setIsLoadingMoreTracks(false);
+  }, [fetchLikedTrackPage, fetchPlaylistTrackPage, isLoadingMoreTracks, openedBox]);
+
+  useEffect(() => {
+    if (!openedBox?.nextUrl) return;
+    if (openedBox.tracks.length === 0) return;
+
+    const shouldPreloadMore = selectedTrackIndex >= openedBox.tracks.length - 12;
+
+    if (shouldPreloadMore) {
+      loadMoreOpenedBoxTracks();
+    }
+  }, [loadMoreOpenedBoxTracks, openedBox, selectedTrackIndex]);
 
   const preventContextMenu = useCallback((event: any) => {
     event.preventDefault();
@@ -1469,6 +1508,7 @@ export default function VinylPlayer() {
                       <View style={styles.coverFlowMeta}>
                         <Text style={styles.coverFlowTrackNumber}>
                           {String(selectedTrackIndex + 1).padStart(2, '0')} / {String(openedBox.tracks.length).padStart(2, '0')}
+                          {openedBox.nextUrl ? ' +' : ''}
                         </Text>
 
                         <Text style={styles.coverFlowTitle} numberOfLines={2}>
