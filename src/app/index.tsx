@@ -32,7 +32,7 @@ import { CLIENT_ID, DISCOVERY, REDIRECT_URI, SCOPES } from '../spotify';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const PEEK_HEIGHT = 36;
+const PEEK_HEIGHT = 72;
 const FALLBACK_ART = 'https://picsum.photos/400/400';
 const LOCKED_Y = 0;
 const ARM_WIDTH = 14;
@@ -44,25 +44,25 @@ const SOFT_EASING = Easing.bezier(0.16, 1, 0.3, 1);
 const RIM_ACCENT_COLORS = ['#ff3b30', '#ffcc00', '#34c759', '#007aff'] as const;
 
 const SLEEVE_PEEK_COLORS = [
-  '#9f3535',
-  '#26656c',
-  '#335f44',
-  '#8b6f2c',
-  '#553f75',
-  '#9b4f7a',
-  '#2f4f7f',
-  '#a86433',
+  '#b54848',
+  '#327a83',
+  '#3d7355',
+  '#9b7d37',
+  '#6c518f',
+  '#b45f91',
+  '#4169a3',
+  '#bd7143',
 ] as const;
 
 const COVER_FLOW_ACCENTS = [
-  '#d4af37',
-  '#e2c46f',
-  '#c9975f',
-  '#b58cff',
-  '#7fc7d9',
-  '#8fd6a3',
-  '#e49393',
-  '#f2d06b',
+  '#f4d56f',
+  '#fff0b8',
+  '#f0b46f',
+  '#c2a3ff',
+  '#8fd9ee',
+  '#9fe5b2',
+  '#f2a7a7',
+  '#ffe08a',
 ] as const;
 
 type GradientColors = readonly [ColorValue, ColorValue, ColorValue];
@@ -94,7 +94,7 @@ type SpotifyPlaylist = {
   id: string;
   name: string;
   imageUrl: string | null;
-  trackCount: number;
+  trackCount: number | null;
 };
 
 type SpotifyTrack = {
@@ -340,6 +340,38 @@ export default function VinylPlayer() {
     DISCOVERY
   );
 
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+
+    const html = document.documentElement;
+    const body = document.body;
+
+    html.style.backgroundColor = '#050509';
+    html.style.margin = '0';
+    html.style.padding = '0';
+    html.style.height = '100%';
+    html.style.overflow = 'hidden';
+    html.style.overscrollBehavior = 'none';
+
+    body.style.backgroundColor = '#050509';
+    body.style.margin = '0';
+    body.style.padding = '0';
+    body.style.height = '100%';
+    body.style.overflow = 'hidden';
+    body.style.overscrollBehavior = 'none';
+    body.style.touchAction = 'none';
+
+    let viewport = document.querySelector('meta[name="viewport"]') as HTMLMetaElement | null;
+
+    if (!viewport) {
+      viewport = document.createElement('meta');
+      viewport.name = 'viewport';
+      document.head.appendChild(viewport);
+    }
+
+    viewport.content = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+  }, []);
+
   const saveAuth = useCallback(async (nextAuth: SpotifyAuth) => {
     setAuth(nextAuth);
     await AsyncStorage.setItem(TOKEN_STORAGE_KEY, JSON.stringify(nextAuth));
@@ -572,31 +604,68 @@ export default function VinylPlayer() {
     return () => clearInterval(interval);
   }, [token, fetchNowPlaying]);
 
+  const fetchPlaylistTrackCount = useCallback(
+    async (playlistId: string, accessToken: string) => {
+      try {
+        const res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}?fields=tracks(total)`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+
+        if (res.status === 200) {
+          const data = await res.json();
+          const total = Number(data?.tracks?.total);
+
+          return Number.isFinite(total) ? total : null;
+        }
+      } catch {
+        // Count is nice-to-have.
+      }
+
+      return null;
+    },
+    []
+  );
+
   const fetchPlaylists = useCallback(async () => {
     const accessToken = await getValidAccessToken();
     if (!accessToken) return;
 
     try {
-      const res = await fetch('https://api.spotify.com/v1/me/playlists?limit=20', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      let url: string | null = 'https://api.spotify.com/v1/me/playlists?limit=50';
+      const collected: any[] = [];
 
-      if (res.status === 200) {
+      while (url) {
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+
+        if (!res.ok) break;
+
         const data = await res.json();
-
-        const items: SpotifyPlaylist[] = (data.items || []).map((p: any) => ({
-          id: p.id,
-          name: p.name,
-          imageUrl: p.images?.[0]?.url || null,
-          trackCount: p.tracks?.total || 0,
-        }));
-
-        setPlaylists(items);
+        collected.push(...(data.items || []));
+        url = data.next || null;
       }
+
+      const items: SpotifyPlaylist[] = await Promise.all(
+        collected.map(async (playlist: any) => {
+          const rawTotal = Number(playlist?.tracks?.total);
+          const fallbackTotal = playlist?.id ? await fetchPlaylistTrackCount(playlist.id, accessToken) : null;
+          const trackCount = Number.isFinite(rawTotal) && rawTotal > 0 ? rawTotal : fallbackTotal;
+
+          return {
+            id: playlist.id,
+            name: playlist.name,
+            imageUrl: playlist.images?.[0]?.url || null,
+            trackCount,
+          };
+        })
+      );
+
+      setPlaylists(items);
     } catch (e) {
       console.log('Playlists error:', e);
     }
-  }, [getValidAccessToken]);
+  }, [fetchPlaylistTrackCount, getValidAccessToken]);
 
   const fetchPlaylistTracks = useCallback(
     async (playlistId: string) => {
@@ -604,15 +673,21 @@ export default function VinylPlayer() {
       if (!accessToken) return [];
 
       try {
-        const res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=50`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
+        let url: string | null =
+          `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=100&fields=items(track(id,name,uri,artists(name),album(images(url)))),next`;
+        const tracks: SpotifyTrack[] = [];
 
-        if (res.status === 200) {
+        while (url) {
+          const res = await fetch(url, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+
+          if (!res.ok) break;
+
           const data = await res.json();
 
-          return (data.items || [])
-            .filter((item: any) => item?.track?.id)
+          const pageTracks = (data.items || [])
+            .filter((item: any) => item?.track?.id && item?.track?.uri)
             .map((item: any) => ({
               id: item.track.id,
               title: item.track.name,
@@ -620,7 +695,16 @@ export default function VinylPlayer() {
               albumArt: item.track.album?.images?.[0]?.url || null,
               uri: item.track.uri,
             })) as SpotifyTrack[];
+
+          tracks.push(...pageTracks);
+          url = data.next || null;
         }
+
+        setPlaylists((previous) =>
+          previous.map((playlist) => (playlist.id === playlistId ? { ...playlist, trackCount: tracks.length } : playlist))
+        );
+
+        return tracks;
       } catch (e) {
         console.log('Playlist tracks error:', e);
       }
@@ -635,15 +719,20 @@ export default function VinylPlayer() {
     if (!accessToken) return [];
 
     try {
-      const res = await fetch('https://api.spotify.com/v1/me/tracks?limit=50', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      let url: string | null = 'https://api.spotify.com/v1/me/tracks?limit=50';
+      const tracks: SpotifyTrack[] = [];
 
-      if (res.status === 200) {
+      while (url) {
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+
+        if (!res.ok) break;
+
         const data = await res.json();
 
-        return (data.items || [])
-          .filter((item: any) => item?.track?.id)
+        const pageTracks = (data.items || [])
+          .filter((item: any) => item?.track?.id && item?.track?.uri)
           .map((item: any) => ({
             id: item.track.id,
             title: item.track.name,
@@ -651,7 +740,12 @@ export default function VinylPlayer() {
             albumArt: item.track.album?.images?.[0]?.url || null,
             uri: item.track.uri,
           })) as SpotifyTrack[];
+
+        tracks.push(...pageTracks);
+        url = data.next || null;
       }
+
+      return tracks;
     } catch (e) {
       console.log('Liked tracks error:', e);
     }
@@ -1105,7 +1199,7 @@ export default function VinylPlayer() {
   const nextTrack =
     openedBox && openedBox.tracks.length > 1 ? openedBox.tracks[(selectedTrackIndex + 1) % openedBox.tracks.length] : null;
 
-  const selectedAccent = selectedTrack ? getCoverFlowAccent(selectedTrack.id) : '#d4af37';
+  const selectedAccent = selectedTrack ? getCoverFlowAccent(selectedTrack.id) : '#f4d56f';
 
   if (!token) {
     return (
@@ -1302,11 +1396,19 @@ export default function VinylPlayer() {
                               )
                             }
                           >
+                            <View style={styles.coverFlowSideVinyl}>
+                              <View style={styles.coverFlowSideVinylGrooveOne} />
+                              <View style={styles.coverFlowSideVinylGrooveTwo} />
+                              <View style={styles.coverFlowSideVinylLabel} />
+                            </View>
+
                             {previousTrack.albumArt ? (
                               <Image source={{ uri: previousTrack.albumArt }} style={styles.coverFlowSideImage} />
                             ) : (
                               <View style={[styles.coverFlowSideImage, styles.coverFlowFallback]} />
                             )}
+
+                            <View style={styles.coverFlowSideSheen} />
                           </Pressable>
                         ) : null}
 
@@ -1347,11 +1449,19 @@ export default function VinylPlayer() {
                               )
                             }
                           >
+                            <View style={styles.coverFlowSideVinyl}>
+                              <View style={styles.coverFlowSideVinylGrooveOne} />
+                              <View style={styles.coverFlowSideVinylGrooveTwo} />
+                              <View style={styles.coverFlowSideVinylLabel} />
+                            </View>
+
                             {nextTrack.albumArt ? (
                               <Image source={{ uri: nextTrack.albumArt }} style={styles.coverFlowSideImage} />
                             ) : (
                               <View style={[styles.coverFlowSideImage, styles.coverFlowFallback]} />
                             )}
+
+                            <View style={styles.coverFlowSideSheen} />
                           </Pressable>
                         ) : null}
                       </View>
@@ -1397,7 +1507,7 @@ export default function VinylPlayer() {
                                 <View
                                   style={[
                                     styles.coverFlowThumbNeedleDot,
-                                    { backgroundColor: isSelected ? selectedAccent : 'rgba(255,255,255,0.24)' },
+                                    { backgroundColor: isSelected ? selectedAccent : 'rgba(255,255,255,0.28)' },
                                   ]}
                                 />
                               </View>
@@ -1447,7 +1557,7 @@ export default function VinylPlayer() {
                         {playlist.name}
                       </Text>
 
-                      <Text style={styles.crateBoxCount}>{playlist.trackCount} records</Text>
+                      <Text style={styles.crateBoxCount}>{playlist.trackCount === null ? 'records inside' : `${playlist.trackCount} records`}</Text>
 
                       <View style={styles.cratePeekRow}>
                         {SLEEVE_PEEK_COLORS.slice(0, 6).map((color, index) => (
@@ -1544,7 +1654,7 @@ export default function VinylPlayer() {
 function getStyles(layout: PlayerLayout) {
   const crateBoxWidth = layout.isLandscape ? Math.min((layout.screenWidth - 92) / 3, 220) : (layout.screenWidth - 52) / 2;
   const mainCoverSize = layout.isLandscape ? Math.min(layout.screenHeight * 0.36, 230) : Math.min(layout.screenWidth * 0.48, 210);
-  const sideCoverSize = mainCoverSize * 0.64;
+  const sideCoverSize = mainCoverSize * 0.67;
 
   return StyleSheet.create({
     loginContainer: {
@@ -1573,7 +1683,7 @@ function getStyles(layout: PlayerLayout) {
     },
     container: {
       flex: 1,
-      backgroundColor: '#16161f',
+      backgroundColor: '#050509',
       overflow: 'hidden',
     },
     albumWrapper: {
@@ -1835,11 +1945,11 @@ function getStyles(layout: PlayerLayout) {
       width: layout.screenWidth,
       height: layout.screenHeight,
       zIndex: 80,
-      backgroundColor: '#070605',
+      backgroundColor: '#050509',
     },
     crateBackground: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: 'rgba(7,6,5,0.97)',
+      backgroundColor: 'rgba(5,5,9,0.985)',
     },
     crateHeader: {
       flexDirection: 'row',
@@ -1849,10 +1959,10 @@ function getStyles(layout: PlayerLayout) {
       paddingHorizontal: 22,
       paddingBottom: 16,
       borderBottomWidth: 1,
-      borderBottomColor: 'rgba(212,175,55,0.14)',
+      borderBottomColor: 'rgba(255,240,184,0.13)',
     },
     crateHeaderEyebrow: {
-      color: 'rgba(212,175,55,0.58)',
+      color: 'rgba(255,240,184,0.58)',
       fontSize: 10,
       fontWeight: '900',
       letterSpacing: 1.8,
@@ -1860,7 +1970,7 @@ function getStyles(layout: PlayerLayout) {
       marginBottom: 4,
     },
     crateHeaderTitle: {
-      color: '#f0d987',
+      color: '#fff0b8',
       fontSize: 25,
       fontWeight: '900',
       letterSpacing: 0.6,
@@ -1870,11 +1980,11 @@ function getStyles(layout: PlayerLayout) {
       paddingHorizontal: 14,
       borderRadius: 999,
       borderWidth: 1,
-      borderColor: 'rgba(212,175,55,0.25)',
-      backgroundColor: 'rgba(255,255,255,0.03)',
+      borderColor: 'rgba(255,240,184,0.23)',
+      backgroundColor: 'rgba(255,255,255,0.035)',
     },
     crateCloseBtnText: {
-      color: 'rgba(240,217,135,0.84)',
+      color: 'rgba(255,240,184,0.88)',
       fontSize: 11,
       fontWeight: '900',
       letterSpacing: 1,
@@ -1894,9 +2004,9 @@ function getStyles(layout: PlayerLayout) {
       aspectRatio: 0.92,
       borderRadius: 18,
       overflow: 'hidden',
-      backgroundColor: 'rgba(255,255,255,0.035)',
+      backgroundColor: 'rgba(255,255,255,0.05)',
       borderWidth: 1,
-      borderColor: 'rgba(240,217,135,0.13)',
+      borderColor: 'rgba(255,240,184,0.13)',
       position: 'relative',
       boxShadow: '8px 12px 30px rgba(0,0,0,0.42)',
     },
@@ -1907,7 +2017,7 @@ function getStyles(layout: PlayerLayout) {
       width: 120,
       height: 120,
       borderRadius: 60,
-      backgroundColor: 'rgba(212,175,55,0.09)',
+      backgroundColor: 'rgba(143,217,238,0.10)',
     },
     crateBoxInner: {
       flex: 1,
@@ -1918,14 +2028,14 @@ function getStyles(layout: PlayerLayout) {
       width: 52,
       height: 52,
       borderRadius: 18,
-      backgroundColor: 'rgba(212,175,55,0.11)',
+      backgroundColor: 'rgba(255,240,184,0.10)',
       borderWidth: 1,
-      borderColor: 'rgba(212,175,55,0.22)',
+      borderColor: 'rgba(255,240,184,0.22)',
       alignItems: 'center',
       justifyContent: 'center',
     },
     crateBoxLabel: {
-      color: '#f0d987',
+      color: '#fff0b8',
       fontSize: 28,
       lineHeight: 30,
     },
@@ -1934,20 +2044,20 @@ function getStyles(layout: PlayerLayout) {
       height: 58,
       borderRadius: 14,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.12)',
+      borderColor: 'rgba(255,255,255,0.14)',
     },
     crateBoxArtFallback: {
-      backgroundColor: 'rgba(212,175,55,0.14)',
+      backgroundColor: 'rgba(143,217,238,0.16)',
     },
     crateBoxName: {
-      color: 'rgba(255,247,222,0.94)',
+      color: 'rgba(255,250,235,0.96)',
       fontSize: 14,
       fontWeight: '900',
       lineHeight: 17,
       letterSpacing: 0.1,
     },
     crateBoxCount: {
-      color: 'rgba(255,247,222,0.46)',
+      color: 'rgba(255,250,235,0.50)',
       fontSize: 10,
       fontWeight: '800',
       textTransform: 'uppercase',
@@ -1966,7 +2076,7 @@ function getStyles(layout: PlayerLayout) {
       height: '100%',
       borderRadius: 2,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.10)',
+      borderColor: 'rgba(255,255,255,0.12)',
     },
     crateBoxOpen: {
       flex: 1,
@@ -1983,11 +2093,11 @@ function getStyles(layout: PlayerLayout) {
       paddingHorizontal: 13,
       borderRadius: 999,
       borderWidth: 1,
-      borderColor: 'rgba(212,175,55,0.25)',
-      backgroundColor: 'rgba(255,255,255,0.03)',
+      borderColor: 'rgba(255,240,184,0.23)',
+      backgroundColor: 'rgba(255,255,255,0.035)',
     },
     crateBackBtnText: {
-      color: 'rgba(240,217,135,0.84)',
+      color: 'rgba(255,240,184,0.88)',
       fontSize: 11,
       fontWeight: '900',
       letterSpacing: 0.5,
@@ -1997,7 +2107,7 @@ function getStyles(layout: PlayerLayout) {
       flex: 1,
     },
     openedBoxEyebrow: {
-      color: 'rgba(240,217,135,0.44)',
+      color: 'rgba(143,217,238,0.54)',
       fontSize: 9,
       fontWeight: '900',
       letterSpacing: 1.5,
@@ -2005,7 +2115,7 @@ function getStyles(layout: PlayerLayout) {
       marginBottom: 3,
     },
     crateBoxOpenTitle: {
-      color: '#f6e7ad',
+      color: '#fff5c9',
       fontSize: 18,
       fontWeight: '900',
       letterSpacing: 0.2,
@@ -2015,21 +2125,21 @@ function getStyles(layout: PlayerLayout) {
       marginHorizontal: 18,
       marginBottom: 20,
       borderRadius: 28,
-      backgroundColor: 'rgba(255,255,255,0.035)',
+      backgroundColor: 'rgba(255,255,255,0.045)',
       borderWidth: 1,
-      borderColor: 'rgba(240,217,135,0.13)',
+      borderColor: 'rgba(255,240,184,0.13)',
       overflow: 'hidden',
       position: 'relative',
       alignItems: 'center',
-      boxShadow: '12px 18px 44px rgba(0,0,0,0.54), inset 0px 1px 0px rgba(255,255,255,0.06)',
+      boxShadow: '12px 18px 44px rgba(0,0,0,0.54), inset 0px 1px 0px rgba(255,255,255,0.07)',
     },
     coverFlowGlow: {
       position: 'absolute',
       top: -130,
-      width: layout.isLandscape ? 420 : 330,
-      height: layout.isLandscape ? 420 : 330,
-      borderRadius: layout.isLandscape ? 210 : 165,
-      opacity: 0.16,
+      width: layout.isLandscape ? 440 : 350,
+      height: layout.isLandscape ? 440 : 350,
+      borderRadius: layout.isLandscape ? 220 : 175,
+      opacity: 0.24,
     },
     coverFlowGlass: {
       position: 'absolute',
@@ -2039,8 +2149,8 @@ function getStyles(layout: PlayerLayout) {
       bottom: 18,
       borderRadius: 24,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.05)',
-      backgroundColor: 'rgba(0,0,0,0.14)',
+      borderColor: 'rgba(255,255,255,0.055)',
+      backgroundColor: 'rgba(0,0,0,0.09)',
     },
     coverFlowLoading: {
       flex: 1,
@@ -2048,7 +2158,7 @@ function getStyles(layout: PlayerLayout) {
       justifyContent: 'center',
     },
     coverFlowLoadingText: {
-      color: 'rgba(255,247,222,0.58)',
+      color: 'rgba(255,250,235,0.60)',
       fontSize: 14,
       fontStyle: 'italic',
       fontWeight: '700',
@@ -2078,10 +2188,10 @@ function getStyles(layout: PlayerLayout) {
       borderRadius: mainCoverSize * 0.46,
       backgroundColor: '#050505',
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.11)',
+      borderColor: 'rgba(255,255,255,0.13)',
       alignItems: 'center',
       justifyContent: 'center',
-      boxShadow: '10px 14px 30px rgba(0,0,0,0.62), inset 0px 0px 22px rgba(255,255,255,0.05)',
+      boxShadow: '10px 14px 30px rgba(0,0,0,0.62), inset 0px 0px 22px rgba(255,255,255,0.06)',
     },
     coverFlowVinylGrooveOne: {
       position: 'absolute',
@@ -2089,7 +2199,7 @@ function getStyles(layout: PlayerLayout) {
       height: '80%',
       borderRadius: 999,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.08)',
+      borderColor: 'rgba(255,255,255,0.095)',
     },
     coverFlowVinylGrooveTwo: {
       position: 'absolute',
@@ -2097,7 +2207,7 @@ function getStyles(layout: PlayerLayout) {
       height: '60%',
       borderRadius: 999,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.07)',
+      borderColor: 'rgba(255,255,255,0.085)',
     },
     coverFlowVinylGrooveThree: {
       position: 'absolute',
@@ -2105,15 +2215,15 @@ function getStyles(layout: PlayerLayout) {
       height: '40%',
       borderRadius: 999,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.07)',
+      borderColor: 'rgba(255,255,255,0.08)',
     },
     coverFlowVinylLabel: {
       width: mainCoverSize * 0.18,
       height: mainCoverSize * 0.18,
       borderRadius: mainCoverSize * 0.09,
-      opacity: 0.54,
+      opacity: 0.62,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.18)',
+      borderColor: 'rgba(255,255,255,0.20)',
     },
     coverFlowMainShadow: {
       position: 'absolute',
@@ -2133,17 +2243,17 @@ function getStyles(layout: PlayerLayout) {
       height: mainCoverSize,
       borderRadius: 20,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.18)',
+      borderColor: 'rgba(255,255,255,0.20)',
       backgroundColor: '#17130f',
       boxShadow: '12px 16px 34px rgba(0,0,0,0.5)',
     },
     coverFlowFallback: {
-      backgroundColor: 'rgba(212,175,55,0.12)',
+      backgroundColor: 'rgba(143,217,238,0.13)',
       alignItems: 'center',
       justifyContent: 'center',
     },
     coverFlowFallbackText: {
-      color: 'rgba(240,217,135,0.54)',
+      color: 'rgba(255,240,184,0.60)',
       fontSize: 13,
       fontWeight: '900',
       letterSpacing: 1.4,
@@ -2155,34 +2265,86 @@ function getStyles(layout: PlayerLayout) {
       width: mainCoverSize,
       height: 24,
       borderRadius: 18,
-      backgroundColor: 'rgba(255,255,255,0.08)',
-      opacity: 0.28,
+      backgroundColor: 'rgba(255,255,255,0.10)',
+      opacity: 0.32,
       transform: [{ scaleY: 0.55 }],
     },
     coverFlowSidePreview: {
       position: 'absolute',
-      top: layout.isLandscape ? 42 : 50,
-      width: sideCoverSize,
-      height: sideCoverSize,
-      borderRadius: 16,
-      opacity: 0.48,
+      top: layout.isLandscape ? 34 : 42,
+      width: sideCoverSize + 42,
+      height: sideCoverSize + 28,
+      opacity: 0.72,
       zIndex: 3,
-      boxShadow: '6px 10px 24px rgba(0,0,0,0.42)',
     },
     coverFlowSidePreviewLeft: {
-      left: layout.isLandscape ? '12%' : '4%',
-      transform: [{ rotate: '-8deg' }, { scale: 0.92 }],
+      left: layout.isLandscape ? '10%' : '2%',
+      transform: [{ rotate: '-8deg' }, { scale: 0.95 }],
     },
     coverFlowSidePreviewRight: {
-      right: layout.isLandscape ? '12%' : '4%',
-      transform: [{ rotate: '8deg' }, { scale: 0.92 }],
+      right: layout.isLandscape ? '10%' : '2%',
+      transform: [{ rotate: '8deg' }, { scale: 0.95 }],
+    },
+    coverFlowSideVinyl: {
+      position: 'absolute',
+      right: 0,
+      top: 13,
+      width: sideCoverSize * 0.82,
+      height: sideCoverSize * 0.82,
+      borderRadius: sideCoverSize * 0.41,
+      backgroundColor: '#050505',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.15)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      opacity: 0.95,
+      boxShadow: '6px 10px 22px rgba(0,0,0,0.52), inset 0px 0px 16px rgba(255,255,255,0.07)',
+    },
+    coverFlowSideVinylGrooveOne: {
+      position: 'absolute',
+      width: '78%',
+      height: '78%',
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.12)',
+    },
+    coverFlowSideVinylGrooveTwo: {
+      position: 'absolute',
+      width: '54%',
+      height: '54%',
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.10)',
+    },
+    coverFlowSideVinylLabel: {
+      width: 18,
+      height: 18,
+      borderRadius: 9,
+      backgroundColor: 'rgba(255,240,184,0.34)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.18)',
     },
     coverFlowSideImage: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
       width: sideCoverSize,
       height: sideCoverSize,
       borderRadius: 16,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.12)',
+      borderColor: 'rgba(255,255,255,0.16)',
+      boxShadow: '6px 10px 24px rgba(0,0,0,0.44)',
+    },
+    coverFlowSideSheen: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      width: sideCoverSize,
+      height: sideCoverSize,
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.07)',
+      backgroundColor: 'rgba(255,255,255,0.045)',
     },
     coverFlowMeta: {
       alignItems: 'center',
@@ -2191,7 +2353,7 @@ function getStyles(layout: PlayerLayout) {
       zIndex: 4,
     },
     coverFlowTrackNumber: {
-      color: 'rgba(240,217,135,0.54)',
+      color: 'rgba(143,217,238,0.62)',
       fontSize: 10,
       fontWeight: '900',
       letterSpacing: 1.4,
@@ -2199,7 +2361,7 @@ function getStyles(layout: PlayerLayout) {
       textTransform: 'uppercase',
     },
     coverFlowTitle: {
-      color: 'rgba(255,247,222,0.97)',
+      color: 'rgba(255,250,235,0.98)',
       fontSize: layout.isLandscape ? 22 : 19,
       fontWeight: '900',
       textAlign: 'center',
@@ -2207,7 +2369,7 @@ function getStyles(layout: PlayerLayout) {
       maxWidth: layout.isLandscape ? 520 : 320,
     },
     coverFlowArtist: {
-      color: 'rgba(255,247,222,0.54)',
+      color: 'rgba(255,250,235,0.58)',
       fontSize: 12,
       fontWeight: '900',
       textAlign: 'center',
@@ -2216,7 +2378,7 @@ function getStyles(layout: PlayerLayout) {
       letterSpacing: 1.2,
     },
     coverFlowHint: {
-      color: 'rgba(240,217,135,0.52)',
+      color: 'rgba(255,240,184,0.58)',
       fontSize: 10,
       fontWeight: '900',
       marginTop: 11,
@@ -2242,28 +2404,28 @@ function getStyles(layout: PlayerLayout) {
       alignItems: 'center',
       justifyContent: 'center',
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.08)',
-      backgroundColor: 'rgba(255,255,255,0.035)',
-      opacity: 0.72,
+      borderColor: 'rgba(255,255,255,0.09)',
+      backgroundColor: 'rgba(255,255,255,0.045)',
+      opacity: 0.76,
     },
     coverFlowThumbActive: {
       opacity: 1,
-      borderColor: 'rgba(240,217,135,0.62)',
-      backgroundColor: 'rgba(240,217,135,0.08)',
+      borderColor: 'rgba(255,240,184,0.68)',
+      backgroundColor: 'rgba(143,217,238,0.08)',
     },
     coverFlowThumbImage: {
       width: layout.isLandscape ? 46 : 40,
       height: layout.isLandscape ? 46 : 40,
       borderRadius: 9,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.12)',
+      borderColor: 'rgba(255,255,255,0.14)',
     },
     coverFlowThumbNeedle: {
       marginTop: 6,
       width: 22,
       height: 2,
       borderRadius: 2,
-      backgroundColor: 'rgba(255,255,255,0.12)',
+      backgroundColor: 'rgba(255,255,255,0.14)',
       alignItems: 'center',
       justifyContent: 'center',
     },
