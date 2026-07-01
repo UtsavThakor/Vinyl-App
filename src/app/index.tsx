@@ -54,6 +54,17 @@ const SLEEVE_PEEK_COLORS = [
   '#a86433',
 ] as const;
 
+const COVER_FLOW_ACCENTS = [
+  '#d4af37',
+  '#e2c46f',
+  '#c9975f',
+  '#b58cff',
+  '#7fc7d9',
+  '#8fd6a3',
+  '#e49393',
+  '#f2d06b',
+] as const;
+
 type GradientColors = readonly [ColorValue, ColorValue, ColorValue];
 
 type SpotifyAuth = {
@@ -98,6 +109,20 @@ const FALLBACK_GRADIENT: GradientColors = ['#1a1a2e', '#16161f', '#0a0a0f'];
 const TOKEN_STORAGE_KEY = 'spotify_auth';
 const LEGACY_TOKEN_STORAGE_KEY = 'spotify_token';
 const TOKEN_REFRESH_MARGIN_MS = 60 * 1000;
+
+function getHashIndex(id: string, length: number) {
+  let hash = 0;
+
+  for (let i = 0; i < id.length; i++) {
+    hash = (hash * 31 + id.charCodeAt(i)) & 0xffffffff;
+  }
+
+  return Math.abs(hash) % length;
+}
+
+function getCoverFlowAccent(id: string) {
+  return COVER_FLOW_ACCENTS[getHashIndex(id, COVER_FLOW_ACCENTS.length)];
+}
 
 function getLayout(width: number, height: number) {
   const isLandscape = width > height;
@@ -259,6 +284,7 @@ export default function VinylPlayer() {
     null
   );
   const [isLoadingTracks, setIsLoadingTracks] = useState(false);
+  const [selectedTrackIndex, setSelectedTrackIndex] = useState(0);
 
   const crateTranslateX = useSharedValue(0);
   const drawerKnobScale = useSharedValue(1);
@@ -732,6 +758,7 @@ export default function VinylPlayer() {
 
   const closeCrate = useCallback(() => {
     setOpenedBox(null);
+    setSelectedTrackIndex(0);
 
     crateTranslateX.value = withTiming(
       0,
@@ -748,6 +775,7 @@ export default function VinylPlayer() {
   const openBox = useCallback(
     async (type: 'playlist' | 'liked', id: string) => {
       setIsLoadingTracks(true);
+      setSelectedTrackIndex(0);
 
       const tracks = type === 'liked' ? await fetchLikedTracks() : await fetchPlaylistTracks(id);
 
@@ -1064,6 +1092,21 @@ export default function VinylPlayer() {
   const openedBoxTitle =
     openedBox?.type === 'liked' ? 'Liked Vinyls' : playlists.find((playlist) => playlist.id === openedBox?.id)?.name || '';
 
+  const selectedTrack =
+    openedBox && openedBox.tracks.length > 0
+      ? openedBox.tracks[Math.min(selectedTrackIndex, openedBox.tracks.length - 1)]
+      : null;
+
+  const previousTrack =
+    openedBox && openedBox.tracks.length > 1
+      ? openedBox.tracks[(selectedTrackIndex - 1 + openedBox.tracks.length) % openedBox.tracks.length]
+      : null;
+
+  const nextTrack =
+    openedBox && openedBox.tracks.length > 1 ? openedBox.tracks[(selectedTrackIndex + 1) % openedBox.tracks.length] : null;
+
+  const selectedAccent = selectedTrack ? getCoverFlowAccent(selectedTrack.id) : '#d4af37';
+
   if (!token) {
     return (
       <View style={styles.loginContainer}>
@@ -1232,75 +1275,142 @@ export default function VinylPlayer() {
                   </Pressable>
 
                   <View style={styles.openedBoxTitleWrap}>
-                    <Text style={styles.openedBoxEyebrow}>now browsing</Text>
+                    <Text style={styles.openedBoxEyebrow}>cover flow</Text>
                     <Text style={styles.crateBoxOpenTitle} numberOfLines={1}>
                       {openedBoxTitle}
                     </Text>
                   </View>
                 </View>
 
-                <View style={styles.recordShelfStage}>
-                  <View style={styles.recordShelfGlow} />
-                  <View style={styles.recordShelfBackRail} />
+                <View style={styles.coverFlowStage}>
+                  <View style={[styles.coverFlowGlow, { backgroundColor: selectedAccent }]} />
+                  <View style={styles.coverFlowGlass} />
 
                   {isLoadingTracks ? (
-                    <View style={styles.recordShelfLoading}>
-                      <Text style={styles.recordShelfLoadingText}>digging through the crate…</Text>
+                    <View style={styles.coverFlowLoading}>
+                      <Text style={styles.coverFlowLoadingText}>opening the shelf…</Text>
                     </View>
-                  ) : (
-                    <ScrollView
-                      horizontal
-                      style={styles.recordShelfScroll}
-                      contentContainerStyle={styles.recordShelfContent}
-                      showsHorizontalScrollIndicator={false}
-                    >
-                      {openedBox.tracks.map((track, index) => (
+                  ) : selectedTrack ? (
+                    <>
+                      <View style={styles.coverFlowHero}>
+                        {previousTrack ? (
+                          <Pressable
+                            style={[styles.coverFlowSidePreview, styles.coverFlowSidePreviewLeft]}
+                            onPress={() =>
+                              setSelectedTrackIndex((current) =>
+                                openedBox.tracks.length ? (current - 1 + openedBox.tracks.length) % openedBox.tracks.length : 0
+                              )
+                            }
+                          >
+                            {previousTrack.albumArt ? (
+                              <Image source={{ uri: previousTrack.albumArt }} style={styles.coverFlowSideImage} />
+                            ) : (
+                              <View style={[styles.coverFlowSideImage, styles.coverFlowFallback]} />
+                            )}
+                          </Pressable>
+                        ) : null}
+
                         <Pressable
-                          key={track.id}
-                          style={styles.recordCard}
+                          style={styles.coverFlowMainPressable}
                           onPress={async () => {
                             await playManualRecordChange();
-                            await playTrack(track.uri);
+                            await playTrack(selectedTrack.uri);
                             closeCrate();
                           }}
                         >
-                          <View style={styles.recordCardVisual}>
-                            <View style={styles.recordVinylPeek}>
-                              <View style={styles.recordVinylGrooveLarge} />
-                              <View style={styles.recordVinylGrooveMedium} />
-                              <View style={styles.recordVinylGrooveSmall} />
-                              <View style={styles.recordVinylLabel} />
-                            </View>
-
-                            <View style={styles.recordCoverShadow} />
-
-                            {track.albumArt ? (
-                              <Image source={{ uri: track.albumArt }} style={styles.recordCover} />
-                            ) : (
-                              <View style={[styles.recordCover, styles.recordCoverFallback]}>
-                                <Text style={styles.recordCoverFallbackText}>VINYL</Text>
-                              </View>
-                            )}
-
-                            <View style={styles.recordNumberBadge}>
-                              <Text style={styles.recordNumberText}>{String(index + 1).padStart(2, '0')}</Text>
-                            </View>
+                          <View style={styles.coverFlowVinylBehind}>
+                            <View style={styles.coverFlowVinylGrooveOne} />
+                            <View style={styles.coverFlowVinylGrooveTwo} />
+                            <View style={styles.coverFlowVinylGrooveThree} />
+                            <View style={[styles.coverFlowVinylLabel, { backgroundColor: selectedAccent }]} />
                           </View>
 
-                          <View style={styles.recordMeta}>
-                            <Text style={styles.recordTitle} numberOfLines={2}>
-                              {track.title}
-                            </Text>
-                            <Text style={styles.recordArtist} numberOfLines={1}>
-                              {track.artist || 'Unknown Artist'}
-                            </Text>
-                          </View>
+                          <View style={styles.coverFlowMainShadow} />
+
+                          {selectedTrack.albumArt ? (
+                            <Image source={{ uri: selectedTrack.albumArt }} style={styles.coverFlowMainCover} />
+                          ) : (
+                            <View style={[styles.coverFlowMainCover, styles.coverFlowFallback]}>
+                              <Text style={styles.coverFlowFallbackText}>VINYL</Text>
+                            </View>
+                          )}
+
+                          <View style={styles.coverFlowReflection} />
                         </Pressable>
-                      ))}
-                    </ScrollView>
-                  )}
 
-                  <View style={styles.recordShelfFrontLip} />
+                        {nextTrack ? (
+                          <Pressable
+                            style={[styles.coverFlowSidePreview, styles.coverFlowSidePreviewRight]}
+                            onPress={() =>
+                              setSelectedTrackIndex((current) =>
+                                openedBox.tracks.length ? (current + 1) % openedBox.tracks.length : 0
+                              )
+                            }
+                          >
+                            {nextTrack.albumArt ? (
+                              <Image source={{ uri: nextTrack.albumArt }} style={styles.coverFlowSideImage} />
+                            ) : (
+                              <View style={[styles.coverFlowSideImage, styles.coverFlowFallback]} />
+                            )}
+                          </Pressable>
+                        ) : null}
+                      </View>
+
+                      <View style={styles.coverFlowMeta}>
+                        <Text style={styles.coverFlowTrackNumber}>
+                          {String(selectedTrackIndex + 1).padStart(2, '0')} / {String(openedBox.tracks.length).padStart(2, '0')}
+                        </Text>
+
+                        <Text style={styles.coverFlowTitle} numberOfLines={2}>
+                          {selectedTrack.title}
+                        </Text>
+
+                        <Text style={styles.coverFlowArtist} numberOfLines={1}>
+                          {selectedTrack.artist || 'Unknown Artist'}
+                        </Text>
+
+                        <Text style={styles.coverFlowHint}>tap cover to drop the needle</Text>
+                      </View>
+
+                      <ScrollView
+                        horizontal
+                        style={styles.coverFlowThumbStrip}
+                        contentContainerStyle={styles.coverFlowThumbContent}
+                        showsHorizontalScrollIndicator={false}
+                      >
+                        {openedBox.tracks.map((track, index) => {
+                          const isSelected = index === selectedTrackIndex;
+
+                          return (
+                            <Pressable
+                              key={track.id}
+                              style={[styles.coverFlowThumb, isSelected ? styles.coverFlowThumbActive : null]}
+                              onPress={() => setSelectedTrackIndex(index)}
+                            >
+                              {track.albumArt ? (
+                                <Image source={{ uri: track.albumArt }} style={styles.coverFlowThumbImage} />
+                              ) : (
+                                <View style={[styles.coverFlowThumbImage, styles.coverFlowFallback]} />
+                              )}
+
+                              <View style={styles.coverFlowThumbNeedle}>
+                                <View
+                                  style={[
+                                    styles.coverFlowThumbNeedleDot,
+                                    { backgroundColor: isSelected ? selectedAccent : 'rgba(255,255,255,0.24)' },
+                                  ]}
+                                />
+                              </View>
+                            </Pressable>
+                          );
+                        })}
+                      </ScrollView>
+                    </>
+                  ) : (
+                    <View style={styles.coverFlowLoading}>
+                      <Text style={styles.coverFlowLoadingText}>No records found in this box.</Text>
+                    </View>
+                  )}
                 </View>
               </View>
             ) : (
@@ -1311,8 +1421,10 @@ export default function VinylPlayer() {
                     <View style={styles.crateBoxIconWrap}>
                       <Text style={styles.crateBoxLabel}>♥</Text>
                     </View>
+
                     <Text style={styles.crateBoxName}>Liked Vinyls</Text>
                     <Text style={styles.crateBoxCount}>saved records</Text>
+
                     <View style={styles.cratePeekRow}>
                       {SLEEVE_PEEK_COLORS.slice(0, 6).map((color, index) => (
                         <View key={index} style={[styles.cratePeekSleeve, { backgroundColor: color }]} />
@@ -1334,6 +1446,7 @@ export default function VinylPlayer() {
                       <Text style={styles.crateBoxName} numberOfLines={2}>
                         {playlist.name}
                       </Text>
+
                       <Text style={styles.crateBoxCount}>{playlist.trackCount} records</Text>
 
                       <View style={styles.cratePeekRow}>
@@ -1430,6 +1543,8 @@ export default function VinylPlayer() {
 
 function getStyles(layout: PlayerLayout) {
   const crateBoxWidth = layout.isLandscape ? Math.min((layout.screenWidth - 92) / 3, 220) : (layout.screenWidth - 52) / 2;
+  const mainCoverSize = layout.isLandscape ? Math.min(layout.screenHeight * 0.36, 230) : Math.min(layout.screenWidth * 0.48, 210);
+  const sideCoverSize = mainCoverSize * 0.64;
 
   return StyleSheet.create({
     loginContainer: {
@@ -1895,192 +2010,267 @@ function getStyles(layout: PlayerLayout) {
       fontWeight: '900',
       letterSpacing: 0.2,
     },
-    recordShelfStage: {
+    coverFlowStage: {
       flex: 1,
       marginHorizontal: 18,
       marginBottom: 20,
-      borderRadius: 24,
+      borderRadius: 28,
       backgroundColor: 'rgba(255,255,255,0.035)',
       borderWidth: 1,
       borderColor: 'rgba(240,217,135,0.13)',
       overflow: 'hidden',
       position: 'relative',
+      alignItems: 'center',
       boxShadow: '12px 18px 44px rgba(0,0,0,0.54), inset 0px 1px 0px rgba(255,255,255,0.06)',
     },
-    recordShelfGlow: {
+    coverFlowGlow: {
       position: 'absolute',
-      left: '8%',
-      top: -80,
-      width: '84%',
-      height: 150,
-      borderRadius: 80,
-      backgroundColor: 'rgba(212,175,55,0.08)',
+      top: -130,
+      width: layout.isLandscape ? 420 : 330,
+      height: layout.isLandscape ? 420 : 330,
+      borderRadius: layout.isLandscape ? 210 : 165,
+      opacity: 0.16,
     },
-    recordShelfBackRail: {
+    coverFlowGlass: {
       position: 'absolute',
-      left: 0,
-      right: 0,
-      top: layout.isLandscape ? 40 : 26,
-      height: 1,
-      backgroundColor: 'rgba(240,217,135,0.16)',
+      left: 18,
+      right: 18,
+      top: 18,
+      bottom: 18,
+      borderRadius: 24,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.05)',
+      backgroundColor: 'rgba(0,0,0,0.14)',
     },
-    recordShelfScroll: {
-      flex: 1,
-    },
-    recordShelfContent: {
-      paddingHorizontal: 26,
-      paddingTop: layout.isLandscape ? 34 : 28,
-      paddingBottom: 34,
-      gap: 22,
-      alignItems: 'center',
-    },
-    recordShelfLoading: {
+    coverFlowLoading: {
       flex: 1,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    recordShelfLoadingText: {
+    coverFlowLoadingText: {
       color: 'rgba(255,247,222,0.58)',
       fontSize: 14,
       fontStyle: 'italic',
       fontWeight: '700',
     },
-    recordCard: {
-      width: layout.isLandscape ? 148 : 138,
-      alignItems: 'center',
-      justifyContent: 'flex-start',
-    },
-    recordCardVisual: {
-      width: layout.isLandscape ? 128 : 118,
-      height: layout.isLandscape ? 132 : 122,
-      position: 'relative',
-      marginBottom: 14,
-    },
-    recordVinylPeek: {
-      position: 'absolute',
-      right: -18,
-      top: 10,
-      width: layout.isLandscape ? 108 : 100,
-      height: layout.isLandscape ? 108 : 100,
-      borderRadius: layout.isLandscape ? 54 : 50,
-      backgroundColor: '#050505',
-      borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.10)',
+    coverFlowHero: {
+      height: layout.isLandscape ? mainCoverSize + 34 : mainCoverSize + 18,
+      width: '100%',
+      marginTop: layout.isLandscape ? 14 : 12,
       alignItems: 'center',
       justifyContent: 'center',
-      boxShadow: '6px 8px 18px rgba(0,0,0,0.58), inset 0px 0px 18px rgba(255,255,255,0.05)',
+      position: 'relative',
     },
-    recordVinylGrooveLarge: {
+    coverFlowMainPressable: {
+      width: mainCoverSize + 72,
+      height: mainCoverSize + 44,
+      alignItems: 'center',
+      justifyContent: 'center',
+      position: 'relative',
+      zIndex: 8,
+    },
+    coverFlowVinylBehind: {
       position: 'absolute',
-      width: '78%',
-      height: '78%',
+      right: 16,
+      top: 18,
+      width: mainCoverSize * 0.92,
+      height: mainCoverSize * 0.92,
+      borderRadius: mainCoverSize * 0.46,
+      backgroundColor: '#050505',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.11)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      boxShadow: '10px 14px 30px rgba(0,0,0,0.62), inset 0px 0px 22px rgba(255,255,255,0.05)',
+    },
+    coverFlowVinylGrooveOne: {
+      position: 'absolute',
+      width: '80%',
+      height: '80%',
       borderRadius: 999,
       borderWidth: 1,
       borderColor: 'rgba(255,255,255,0.08)',
     },
-    recordVinylGrooveMedium: {
+    coverFlowVinylGrooveTwo: {
       position: 'absolute',
-      width: '58%',
-      height: '58%',
+      width: '60%',
+      height: '60%',
       borderRadius: 999,
       borderWidth: 1,
       borderColor: 'rgba(255,255,255,0.07)',
     },
-    recordVinylGrooveSmall: {
+    coverFlowVinylGrooveThree: {
       position: 'absolute',
-      width: '38%',
-      height: '38%',
+      width: '40%',
+      height: '40%',
       borderRadius: 999,
       borderWidth: 1,
       borderColor: 'rgba(255,255,255,0.07)',
     },
-    recordVinylLabel: {
-      width: 22,
-      height: 22,
-      borderRadius: 11,
-      backgroundColor: 'rgba(212,175,55,0.28)',
+    coverFlowVinylLabel: {
+      width: mainCoverSize * 0.18,
+      height: mainCoverSize * 0.18,
+      borderRadius: mainCoverSize * 0.09,
+      opacity: 0.54,
       borderWidth: 1,
-      borderColor: 'rgba(240,217,135,0.24)',
+      borderColor: 'rgba(255,255,255,0.18)',
     },
-    recordCoverShadow: {
+    coverFlowMainShadow: {
       position: 'absolute',
-      left: 2,
-      top: 6,
-      width: layout.isLandscape ? 104 : 98,
-      height: layout.isLandscape ? 104 : 98,
-      borderRadius: 13,
-      backgroundColor: 'rgba(0,0,0,0.36)',
-      transform: [{ translateX: 5 }, { translateY: 6 }],
+      left: 28,
+      top: 22,
+      width: mainCoverSize,
+      height: mainCoverSize,
+      borderRadius: 20,
+      backgroundColor: 'rgba(0,0,0,0.42)',
+      transform: [{ translateX: 8 }, { translateY: 10 }],
     },
-    recordCover: {
+    coverFlowMainCover: {
       position: 'absolute',
-      left: 0,
-      top: 0,
-      width: layout.isLandscape ? 108 : 102,
-      height: layout.isLandscape ? 108 : 102,
-      borderRadius: 14,
+      left: 20,
+      top: 12,
+      width: mainCoverSize,
+      height: mainCoverSize,
+      borderRadius: 20,
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.16)',
+      borderColor: 'rgba(255,255,255,0.18)',
       backgroundColor: '#17130f',
-      boxShadow: '6px 8px 18px rgba(0,0,0,0.46)',
+      boxShadow: '12px 16px 34px rgba(0,0,0,0.5)',
     },
-    recordCoverFallback: {
+    coverFlowFallback: {
+      backgroundColor: 'rgba(212,175,55,0.12)',
       alignItems: 'center',
       justifyContent: 'center',
     },
-    recordCoverFallbackText: {
+    coverFlowFallbackText: {
       color: 'rgba(240,217,135,0.54)',
-      fontSize: 11,
+      fontSize: 13,
       fontWeight: '900',
-      letterSpacing: 1.2,
+      letterSpacing: 1.4,
     },
-    recordNumberBadge: {
+    coverFlowReflection: {
       position: 'absolute',
-      left: 8,
-      bottom: 12,
-      paddingVertical: 4,
-      paddingHorizontal: 7,
-      borderRadius: 999,
-      backgroundColor: 'rgba(0,0,0,0.56)',
+      left: 20,
+      top: mainCoverSize + 16,
+      width: mainCoverSize,
+      height: 24,
+      borderRadius: 18,
+      backgroundColor: 'rgba(255,255,255,0.08)',
+      opacity: 0.28,
+      transform: [{ scaleY: 0.55 }],
+    },
+    coverFlowSidePreview: {
+      position: 'absolute',
+      top: layout.isLandscape ? 42 : 50,
+      width: sideCoverSize,
+      height: sideCoverSize,
+      borderRadius: 16,
+      opacity: 0.48,
+      zIndex: 3,
+      boxShadow: '6px 10px 24px rgba(0,0,0,0.42)',
+    },
+    coverFlowSidePreviewLeft: {
+      left: layout.isLandscape ? '12%' : '4%',
+      transform: [{ rotate: '-8deg' }, { scale: 0.92 }],
+    },
+    coverFlowSidePreviewRight: {
+      right: layout.isLandscape ? '12%' : '4%',
+      transform: [{ rotate: '8deg' }, { scale: 0.92 }],
+    },
+    coverFlowSideImage: {
+      width: sideCoverSize,
+      height: sideCoverSize,
+      borderRadius: 16,
       borderWidth: 1,
       borderColor: 'rgba(255,255,255,0.12)',
     },
-    recordNumberText: {
-      color: 'rgba(255,247,222,0.88)',
-      fontSize: 9,
-      fontWeight: '900',
-      letterSpacing: 0.7,
-    },
-    recordMeta: {
-      width: '100%',
+    coverFlowMeta: {
       alignItems: 'center',
-      paddingHorizontal: 6,
+      paddingHorizontal: 24,
+      marginTop: layout.isLandscape ? 2 : 0,
+      zIndex: 4,
     },
-    recordTitle: {
-      color: 'rgba(255,247,222,0.94)',
+    coverFlowTrackNumber: {
+      color: 'rgba(240,217,135,0.54)',
+      fontSize: 10,
+      fontWeight: '900',
+      letterSpacing: 1.4,
+      marginBottom: 6,
+      textTransform: 'uppercase',
+    },
+    coverFlowTitle: {
+      color: 'rgba(255,247,222,0.97)',
+      fontSize: layout.isLandscape ? 22 : 19,
+      fontWeight: '900',
+      textAlign: 'center',
+      lineHeight: layout.isLandscape ? 27 : 24,
+      maxWidth: layout.isLandscape ? 520 : 320,
+    },
+    coverFlowArtist: {
+      color: 'rgba(255,247,222,0.54)',
       fontSize: 12,
       fontWeight: '900',
-      lineHeight: 15,
       textAlign: 'center',
-    },
-    recordArtist: {
-      color: 'rgba(255,247,222,0.46)',
-      fontSize: 10,
-      fontWeight: '800',
-      textAlign: 'center',
-      marginTop: 4,
+      marginTop: 7,
       textTransform: 'uppercase',
-      letterSpacing: 0.7,
+      letterSpacing: 1.2,
     },
-    recordShelfFrontLip: {
-      position: 'absolute',
-      left: 0,
-      right: 0,
-      bottom: 0,
-      height: 18,
-      backgroundColor: 'rgba(0,0,0,0.32)',
-      borderTopWidth: 1,
-      borderTopColor: 'rgba(240,217,135,0.12)',
+    coverFlowHint: {
+      color: 'rgba(240,217,135,0.52)',
+      fontSize: 10,
+      fontWeight: '900',
+      marginTop: 11,
+      textTransform: 'uppercase',
+      letterSpacing: 1.4,
+    },
+    coverFlowThumbStrip: {
+      width: '100%',
+      marginTop: layout.isLandscape ? 18 : 14,
+      maxHeight: layout.isLandscape ? 92 : 84,
+      zIndex: 5,
+    },
+    coverFlowThumbContent: {
+      paddingHorizontal: 24,
+      gap: 12,
+      alignItems: 'center',
+      paddingBottom: 14,
+    },
+    coverFlowThumb: {
+      width: layout.isLandscape ? 64 : 56,
+      height: layout.isLandscape ? 74 : 66,
+      borderRadius: 14,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.08)',
+      backgroundColor: 'rgba(255,255,255,0.035)',
+      opacity: 0.72,
+    },
+    coverFlowThumbActive: {
+      opacity: 1,
+      borderColor: 'rgba(240,217,135,0.62)',
+      backgroundColor: 'rgba(240,217,135,0.08)',
+    },
+    coverFlowThumbImage: {
+      width: layout.isLandscape ? 46 : 40,
+      height: layout.isLandscape ? 46 : 40,
+      borderRadius: 9,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.12)',
+    },
+    coverFlowThumbNeedle: {
+      marginTop: 6,
+      width: 22,
+      height: 2,
+      borderRadius: 2,
+      backgroundColor: 'rgba(255,255,255,0.12)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    coverFlowThumbNeedleDot: {
+      width: 5,
+      height: 5,
+      borderRadius: 3,
     },
     discWrapper: {
       position: 'absolute',
