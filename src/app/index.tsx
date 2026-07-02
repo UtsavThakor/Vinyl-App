@@ -1339,6 +1339,71 @@ export default function VinylPlayer() {
         <LinearGradient colors={bottomGrad} style={StyleSheet.absoluteFill} />
         <AnimatedGradient colors={topGrad} style={[StyleSheet.absoluteFill, topGradStyle]} />
 
+        <View style={styles.hardwareLayer} pointerEvents="none">
+          <LinearGradient
+            colors={['rgba(118,121,124,0.96)', 'rgba(44,47,50,0.98)', 'rgba(22,24,27,0.99)']}
+            start={{ x: 0.1, y: 0 }}
+            end={{ x: 0.9, y: 1 }}
+            style={styles.turntableChassis}
+          >
+            <View style={styles.chassisTopHighlight} />
+            <View style={styles.chassisInnerLip} />
+            <View style={styles.chassisContactShadow} />
+          </LinearGradient>
+
+          <View style={styles.albumRecess}>
+            <View style={styles.albumRecessFloor} />
+            <View style={styles.albumRecessHighlight} />
+          </View>
+
+          <View style={styles.platterRecess}>
+            <View style={styles.platterInnerShadow} />
+            <View style={styles.platterMetalRing} />
+            <View style={styles.platterCenterDimple} />
+          </View>
+
+          <View style={styles.faderAssembly}>
+            <Text style={styles.faderLabel}>VOLUME</Text>
+            <View style={styles.faderSlot}>
+              {[...Array(9)].map((_, index) => (
+                <View
+                  key={index}
+                  style={[
+                    styles.faderTick,
+                    {
+                      top: 9 + index * (layout.isLandscape ? 12 : 11),
+                      width: index % 2 === 0 ? 14 : 8,
+                    },
+                  ]}
+                />
+              ))}
+              <View style={styles.faderRail} />
+              <LinearGradient
+                colors={['#d8d9d6', '#8c8f8f', '#3f4245']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.faderCap}
+              >
+                <View style={styles.faderCapGroove} />
+              </LinearGradient>
+            </View>
+          </View>
+
+          <View style={styles.shuffleAssembly}>
+            <View style={styles.togglePlate}>
+              <View style={styles.toggleSlot}>
+                <LinearGradient
+                  colors={['#e7e4d8', '#9c9a93', '#4f5151']}
+                  start={{ x: 0.2, y: 0 }}
+                  end={{ x: 0.85, y: 1 }}
+                  style={styles.toggleLever}
+                />
+              </View>
+            </View>
+            <Text style={styles.shuffleLabel}>SHUFFLE</Text>
+          </View>
+        </View>
+
         <Pressable
           style={styles.albumWrapper}
           delayLongPress={420}
@@ -1778,6 +1843,26 @@ function getStyles(layout: PlayerLayout) {
   const crateBoxWidth = layout.isLandscape ? Math.min((layout.screenWidth - 92) / 3, 220) : (layout.screenWidth - 52) / 2;
   const mainCoverSize = layout.isLandscape ? Math.min(layout.screenHeight * 0.36, 230) : Math.min(layout.screenWidth * 0.48, 210);
   const sideCoverSize = mainCoverSize * 0.67;
+  const chassisLeft = layout.isLandscape ? Math.max(34, layout.albumLeft - 52) : Math.max(18, layout.albumLeft - 28);
+  const chassisTop = layout.isLandscape
+    ? Math.max(38, Math.min(layout.armPivotY - 24, layout.discTop - 48))
+    : Math.max(52, layout.discTop - 38);
+  const chassisRight = layout.isLandscape ? 8 : 0;
+  const chassisBottom = Math.min(
+    layout.screenHeight - 28,
+    Math.max(layout.albumTop + layout.albumSize + 70, layout.discTop + layout.discSize + 66)
+  );
+  const chassisWidth = layout.screenWidth - chassisLeft - chassisRight;
+  const chassisHeight = chassisBottom - chassisTop;
+  const chassisRadius = layout.isLandscape ? 34 : 28;
+  const albumRecessInset = layout.albumSize * 0.065;
+  const platterInset = layout.discSize * 0.07;
+  const faderHeight = layout.isLandscape ? 126 : 118;
+  const faderLeft = chassisLeft + (layout.isLandscape ? 28 : 18);
+  const faderTop = chassisTop + (layout.isLandscape ? 30 : 22);
+  const toggleSize = layout.isLandscape ? 74 : 66;
+  const toggleLeft = chassisLeft + chassisWidth - toggleSize - (layout.isLandscape ? 34 : 22);
+  const toggleTop = chassisTop + (layout.isLandscape ? 32 : 24);
 
   return StyleSheet.create({
     loginContainer: {
@@ -1808,6 +1893,238 @@ function getStyles(layout: PlayerLayout) {
       flex: 1,
       backgroundColor: '#050509',
       overflow: 'hidden',
+    },
+    hardwareLayer: {
+      position: 'absolute',
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 2,
+    },
+    turntableChassis: {
+      position: 'absolute',
+      left: chassisLeft,
+      top: chassisTop,
+      width: chassisWidth,
+      height: chassisHeight,
+      borderRadius: chassisRadius,
+      borderWidth: 1,
+      borderColor: 'rgba(230,232,229,0.18)',
+      overflow: 'hidden',
+      boxShadow:
+        '0px 34px 80px rgba(0,0,0,0.56), 0px 12px 22px rgba(0,0,0,0.45), inset 0px 1px 0px rgba(255,255,255,0.23), inset 0px -18px 34px rgba(0,0,0,0.28)',
+    },
+    chassisTopHighlight: {
+      position: 'absolute',
+      left: 18,
+      right: 18,
+      top: 10,
+      height: 1,
+      backgroundColor: 'rgba(255,255,255,0.34)',
+    },
+    chassisInnerLip: {
+      position: 'absolute',
+      left: 10,
+      right: 10,
+      top: 10,
+      bottom: 10,
+      borderRadius: Math.max(18, chassisRadius - 9),
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.065)',
+      backgroundColor: 'rgba(255,255,255,0.015)',
+      boxShadow: 'inset 0px 0px 30px rgba(0,0,0,0.18)',
+    },
+    chassisContactShadow: {
+      position: 'absolute',
+      left: 26,
+      right: 26,
+      bottom: 8,
+      height: 18,
+      borderRadius: 18,
+      backgroundColor: 'rgba(0,0,0,0.26)',
+      opacity: 0.74,
+    },
+    albumRecess: {
+      position: 'absolute',
+      left: layout.albumLeft - albumRecessInset,
+      top: layout.albumTop - albumRecessInset,
+      width: layout.albumSize + albumRecessInset * 2,
+      height: layout.albumSize + albumRecessInset * 2,
+      borderRadius: 12,
+      transform: [{ rotate: layout.isLandscape ? '-3deg' : '-2deg' }],
+      backgroundColor: 'rgba(9,11,13,0.64)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.10)',
+      overflow: 'hidden',
+      boxShadow:
+        'inset 0px 11px 22px rgba(0,0,0,0.66), inset 0px -1px 0px rgba(255,255,255,0.10), 0px 2px 4px rgba(255,255,255,0.035)',
+    },
+    albumRecessFloor: {
+      position: 'absolute',
+      left: 10,
+      right: 10,
+      top: 10,
+      bottom: 10,
+      borderRadius: 8,
+      backgroundColor: 'rgba(21,23,25,0.82)',
+      borderWidth: 1,
+      borderColor: 'rgba(0,0,0,0.38)',
+    },
+    albumRecessHighlight: {
+      position: 'absolute',
+      left: 12,
+      right: 12,
+      top: 8,
+      height: 1,
+      backgroundColor: 'rgba(255,255,255,0.14)',
+    },
+    platterRecess: {
+      position: 'absolute',
+      left: layout.discLeft - platterInset,
+      top: layout.discTop - platterInset,
+      width: layout.discSize + platterInset * 2,
+      height: layout.discSize + platterInset * 2,
+      borderRadius: (layout.discSize + platterInset * 2) / 2,
+      backgroundColor: 'rgba(10,11,12,0.74)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.11)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      boxShadow:
+        'inset 0px 16px 34px rgba(0,0,0,0.72), inset 0px -2px 0px rgba(255,255,255,0.11), 0px 1px 0px rgba(255,255,255,0.07)',
+    },
+    platterInnerShadow: {
+      position: 'absolute',
+      width: layout.discSize * 1.02,
+      height: layout.discSize * 1.02,
+      borderRadius: layout.discSize * 0.51,
+      backgroundColor: 'rgba(0,0,0,0.26)',
+      boxShadow: 'inset 0px 0px 44px rgba(0,0,0,0.72)',
+    },
+    platterMetalRing: {
+      width: layout.discSize * 0.92,
+      height: layout.discSize * 0.92,
+      borderRadius: layout.discSize * 0.46,
+      borderWidth: 1,
+      borderColor: 'rgba(226,226,218,0.12)',
+      backgroundColor: 'rgba(92,95,96,0.08)',
+    },
+    platterCenterDimple: {
+      position: 'absolute',
+      width: layout.discSize * 0.12,
+      height: layout.discSize * 0.12,
+      borderRadius: layout.discSize * 0.06,
+      backgroundColor: 'rgba(26,28,30,0.78)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.10)',
+    },
+    faderAssembly: {
+      position: 'absolute',
+      left: faderLeft,
+      top: faderTop,
+      width: 62,
+      height: faderHeight + 34,
+      alignItems: 'center',
+    },
+    faderLabel: {
+      color: 'rgba(222,224,218,0.50)',
+      fontSize: 8,
+      fontWeight: '900',
+      letterSpacing: 1.2,
+      marginBottom: 8,
+    },
+    faderSlot: {
+      width: 46,
+      height: faderHeight,
+      borderRadius: 15,
+      backgroundColor: 'rgba(8,9,10,0.72)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.10)',
+      alignItems: 'center',
+      overflow: 'hidden',
+      boxShadow:
+        'inset 0px 7px 16px rgba(0,0,0,0.72), inset 0px -1px 0px rgba(255,255,255,0.10), 0px 1px 0px rgba(255,255,255,0.05)',
+    },
+    faderTick: {
+      position: 'absolute',
+      left: 6,
+      height: 1,
+      backgroundColor: 'rgba(220,222,216,0.32)',
+    },
+    faderRail: {
+      position: 'absolute',
+      top: 12,
+      bottom: 12,
+      width: 4,
+      borderRadius: 4,
+      backgroundColor: 'rgba(0,0,0,0.72)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.08)',
+    },
+    faderCap: {
+      position: 'absolute',
+      top: faderHeight * 0.46,
+      width: 34,
+      height: 18,
+      borderRadius: 5,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.28)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      boxShadow: '0px 4px 9px rgba(0,0,0,0.55), inset 0px 1px 0px rgba(255,255,255,0.46)',
+    },
+    faderCapGroove: {
+      width: 22,
+      height: 2,
+      borderRadius: 2,
+      backgroundColor: 'rgba(28,30,31,0.46)',
+    },
+    shuffleAssembly: {
+      position: 'absolute',
+      left: toggleLeft,
+      top: toggleTop,
+      width: toggleSize,
+      alignItems: 'center',
+    },
+    togglePlate: {
+      width: toggleSize,
+      height: toggleSize * 0.74,
+      borderRadius: 16,
+      backgroundColor: 'rgba(17,19,21,0.66)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.12)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      boxShadow:
+        'inset 0px 8px 18px rgba(0,0,0,0.70), inset 0px -1px 0px rgba(255,255,255,0.11), 0px 1px 0px rgba(255,255,255,0.06)',
+    },
+    toggleSlot: {
+      width: toggleSize * 0.34,
+      height: toggleSize * 0.52,
+      borderRadius: 999,
+      backgroundColor: 'rgba(3,4,5,0.82)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.10)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      overflow: 'hidden',
+    },
+    toggleLever: {
+      width: toggleSize * 0.15,
+      height: toggleSize * 0.45,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.24)',
+      transform: [{ rotate: '-14deg' }, { translateY: -3 }],
+      boxShadow: '0px 5px 9px rgba(0,0,0,0.56), inset 0px 1px 0px rgba(255,255,255,0.48)',
+    },
+    shuffleLabel: {
+      color: 'rgba(222,224,218,0.54)',
+      fontSize: 8,
+      fontWeight: '900',
+      letterSpacing: 1.2,
+      marginTop: 7,
     },
     albumWrapper: {
       position: 'absolute',
