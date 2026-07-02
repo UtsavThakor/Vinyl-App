@@ -105,6 +105,12 @@ type SpotifyTrack = {
   uri: string;
 };
 
+type TrackPageResult = {
+  tracks: SpotifyTrack[];
+  nextUrl: string | null;
+  error: string | null;
+};
+
 const FALLBACK_GRADIENT: GradientColors = ['#1a1a2e', '#16161f', '#0a0a0f'];
 const TOKEN_STORAGE_KEY = 'spotify_auth';
 const LEGACY_TOKEN_STORAGE_KEY = 'spotify_token';
@@ -285,6 +291,7 @@ export default function VinylPlayer() {
     id: string;
     tracks: SpotifyTrack[];
     nextUrl: string | null;
+    error: string | null;
   } | null>(null);
 
   const [isLoadingTracks, setIsLoadingTracks] = useState(false);
@@ -684,12 +691,29 @@ export default function VinylPlayer() {
       })) as SpotifyTrack[];
   }, []);
 
+  const formatSpotifyError = useCallback(async (res: Response, label: string) => {
+    const errorText = await res.text();
+
+    if (!errorText) {
+      return `${label} failed with ${res.status} ${res.statusText || 'Spotify error'}.`;
+    }
+
+    try {
+      const parsed = JSON.parse(errorText);
+      const message = parsed?.error?.message || parsed?.error_description || parsed?.message || errorText;
+
+      return `${label} failed with ${res.status}: ${message}`;
+    } catch {
+      return `${label} failed with ${res.status}: ${errorText}`;
+    }
+  }, []);
+
   const fetchTrackPage = useCallback(
-    async (url: string) => {
+    async (url: string, label = 'Track page'): Promise<TrackPageResult> => {
       const accessToken = await getValidAccessToken();
 
       if (!accessToken) {
-        return { tracks: [] as SpotifyTrack[], nextUrl: null as string | null };
+        return { tracks: [], nextUrl: null, error: 'Spotify session expired. Sign in again.' };
       }
 
       try {
@@ -698,10 +722,10 @@ export default function VinylPlayer() {
         });
 
         if (!res.ok) {
-          const errorText = await res.text();
-          console.log('Track page fetch failed:', res.status, errorText);
+          const error = await formatSpotifyError(res, label);
+          console.log('Track page fetch failed:', error);
 
-          return { tracks: [] as SpotifyTrack[], nextUrl: null as string | null };
+          return { tracks: [], nextUrl: null, error };
         }
 
         const data = await res.json();
@@ -709,23 +733,28 @@ export default function VinylPlayer() {
         return {
           tracks: mapSpotifyTracks(data.items || []),
           nextUrl: data.next || null,
+          error: null,
         };
       } catch (e) {
         console.log('Track page error:', e);
 
-        return { tracks: [] as SpotifyTrack[], nextUrl: null as string | null };
+        return {
+          tracks: [],
+          nextUrl: null,
+          error: e instanceof Error ? `${label} failed: ${e.message}` : `${label} failed with an unknown error.`,
+        };
       }
     },
-    [getValidAccessToken, mapSpotifyTracks]
+    [formatSpotifyError, getValidAccessToken, mapSpotifyTracks]
   );
 
   const fetchPlaylistTrackPage = useCallback(
     async (playlistId: string, nextUrl?: string | null) => {
       const url =
         nextUrl ||
-        `https://api.spotify.com/v1/playlists/${playlistId}/tracks?limit=50&market=from_token`;
+        `https://api.spotify.com/v1/playlists/${playlistId}/items?limit=50&market=from_token&additional_types=track`;
 
-      const page = await fetchTrackPage(url);
+      const page = await fetchTrackPage(url, 'Playlist records');
 
       setPlaylists((previous) =>
         previous.map((playlist) =>
@@ -744,7 +773,7 @@ export default function VinylPlayer() {
     async (nextUrl?: string | null) => {
       const url = nextUrl || 'https://api.spotify.com/v1/me/tracks?limit=50&market=from_token';
 
-      return fetchTrackPage(url);
+      return fetchTrackPage(url, 'Liked records');
     },
     [fetchTrackPage]
   );
@@ -874,6 +903,7 @@ export default function VinylPlayer() {
         id,
         tracks: firstPage.tracks,
         nextUrl: firstPage.nextUrl,
+        error: firstPage.error,
       });
 
       setIsLoadingTracks(false);
@@ -901,6 +931,7 @@ export default function VinylPlayer() {
         ...current,
         tracks: [...current.tracks, ...freshTracks],
         nextUrl: nextPage.nextUrl,
+        error: nextPage.error,
       };
     });
 
@@ -1558,7 +1589,9 @@ export default function VinylPlayer() {
                     </>
                   ) : (
                     <View style={styles.coverFlowLoading}>
-                      <Text style={styles.coverFlowLoadingText}>No records found in this box.</Text>
+                      <Text style={styles.coverFlowLoadingText}>
+                        {openedBox.error || 'No records found in this box.'}
+                      </Text>
                     </View>
                   )}
                 </View>
@@ -2202,6 +2235,8 @@ function getStyles(layout: PlayerLayout) {
       fontSize: 14,
       fontStyle: 'italic',
       fontWeight: '700',
+      maxWidth: '82%',
+      textAlign: 'center',
     },
     coverFlowHero: {
       height: layout.isLandscape ? mainCoverSize + 34 : mainCoverSize + 18,
