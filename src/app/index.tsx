@@ -134,24 +134,24 @@ function getCoverFlowAccent(id: string) {
 function getLayout(width: number, height: number) {
   const isLandscape = width > height;
   const shortSide = Math.min(width, height);
-  const discSize = isLandscape ? shortSide * 0.68 : width * 0.68;
-  const albumSize = isLandscape ? discSize * 0.64 : width * 0.33;
+  const discSize = isLandscape ? shortSide * 0.56 : width * 0.54;
+  const albumSize = isLandscape ? shortSide * 0.24 : width * 0.25;
   const coverSize = discSize * 1.12;
 
-  const discCenterX = isLandscape ? width * 0.68 : width * 0.56;
-  const discCenterY = isLandscape ? height * 0.52 : height * 0.42;
+  const discCenterX = isLandscape ? width * 0.55 : width * 0.53;
+  const discCenterY = isLandscape ? height * 0.61 : height * 0.62;
   const discLeft = discCenterX - discSize / 2;
   const discTop = discCenterY - discSize / 2;
 
-  const albumLeft = isLandscape ? width * 0.11 : width * 0.13;
-  const albumTop = height * 0.34;
+  const albumLeft = (isLandscape ? width * 0.42 : width * 0.44) - albumSize / 2;
+  const albumTop = isLandscape ? height * 0.13 : height * 0.18;
 
   const coverLeft = discCenterX - coverSize / 2;
   const coverTop = discCenterY - coverSize / 2;
   const hiddenY = -(coverTop + coverSize - PEEK_HEIGHT);
 
-  const armPivotX = width - 50;
-  const armPivotY = isLandscape ? height * 0.13 : height * 0.07;
+  const armPivotX = width - (isLandscape ? 96 : 78);
+  const armPivotY = isLandscape ? height * 0.15 : height * 0.11;
   const armLength = Math.hypot(discCenterX - armPivotX, discCenterY - armPivotY) * 0.74;
 
   return {
@@ -1847,29 +1847,26 @@ function getStyles(layout: PlayerLayout) {
   const crateBoxWidth = layout.isLandscape ? Math.min((layout.screenWidth - 92) / 3, 220) : (layout.screenWidth - 52) / 2;
   const mainCoverSize = layout.isLandscape ? Math.min(layout.screenHeight * 0.36, 230) : Math.min(layout.screenWidth * 0.48, 210);
   const sideCoverSize = mainCoverSize * 0.67;
-  const chassisLeft = layout.isLandscape ? Math.max(44, layout.albumLeft - 38) : Math.max(22, layout.albumLeft - 20);
-  const chassisTop = layout.isLandscape
-    ? Math.max(48, Math.min(layout.armPivotY - 12, layout.discTop - 34))
-    : Math.max(64, layout.discTop - 26);
-  const chassisRight = layout.isLandscape ? 28 : 16;
+  const chassisLeft = layout.isLandscape ? 70 : 42;
+  const chassisTop = layout.isLandscape ? 62 : 96;
+  const chassisRight = layout.isLandscape ? 42 : 18;
   const chassisBottom = Math.min(
-    layout.screenHeight - 36,
-    Math.max(layout.albumTop + layout.albumSize + 54, layout.discTop + layout.discSize + 48)
+    layout.screenHeight - 34,
+    Math.max(layout.albumTop + layout.albumSize + 68, layout.discTop + layout.discSize + 72)
   );
   const chassisWidth = layout.screenWidth - chassisLeft - chassisRight;
   const chassisHeight = chassisBottom - chassisTop;
   const chassisRadius = layout.isLandscape ? 34 : 28;
-  const albumRecessInset = layout.albumSize * 0.075;
-  const platterInset = layout.discSize * 0.09;
-  const faderHeight = layout.isLandscape ? 126 : 118;
-  const controlGap = layout.isLandscape ? 18 : 14;
-  const faderTop = chassisTop + (layout.isLandscape ? 30 : 22);
-  const toggleSize = layout.isLandscape ? 68 : 62;
-  const controlClusterRight = layout.isLandscape ? 32 : 22;
+  const albumRecessInset = layout.albumSize * 0.14;
+  const platterInset = layout.discSize * 0.06;
+  const faderHeight = layout.isLandscape ? 120 : 110;
+  const controlGap = layout.isLandscape ? 22 : 16;
+  const faderTop = chassisTop + (layout.isLandscape ? 34 : 28);
+  const toggleSize = layout.isLandscape ? 64 : 56;
   const faderWidth = 62;
-  const faderLeft = chassisLeft + chassisWidth - controlClusterRight - toggleSize - controlGap - faderWidth;
+  const faderLeft = chassisLeft + (layout.isLandscape ? 34 : 22);
   const toggleLeft = faderLeft + faderWidth + controlGap;
-  const toggleTop = faderTop + 18;
+  const toggleTop = faderTop + 16;
 
   return StyleSheet.create({
     loginContainer: {
