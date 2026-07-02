@@ -136,7 +136,7 @@ function getLayout(width: number, height: number) {
   const shortSide = Math.min(width, height);
   const discSize = isLandscape ? shortSide * 0.641 : width * 0.641;
   const albumSize = isLandscape ? discSize * 0.504 : width * 0.266;
-  const coverSize = discSize * 1.12;
+  const coverSize = discSize * 1;
 
   const discCenterX = isLandscape ? width * 0.68 : width * 0.66;
   const discCenterY = isLandscape ? height * 0.55 : height * 0.47;
