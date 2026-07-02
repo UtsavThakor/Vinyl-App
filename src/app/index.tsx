@@ -134,17 +134,17 @@ function getCoverFlowAccent(id: string) {
 function getLayout(width: number, height: number) {
   const isLandscape = width > height;
   const shortSide = Math.min(width, height);
-  const discSize = isLandscape ? shortSide * 0.60 : width * 0.58;
-  const albumSize = isLandscape ? shortSide * 0.28 : width * 0.29;
+  const discSize = isLandscape ? shortSide * 0.48 : width * 0.52;
+  const albumSize = isLandscape ? shortSide * 0.24 : width * 0.27;
   const coverSize = discSize * 1.12;
 
   const discCenterX = isLandscape ? width * 0.58 : width * 0.56;
-  const discCenterY = isLandscape ? height * 0.56 : height * 0.54;
+  const discCenterY = isLandscape ? height * 0.66 : height * 0.64;
   const discLeft = discCenterX - discSize / 2;
   const discTop = discCenterY - discSize / 2;
 
   const albumLeft = discCenterX - albumSize / 2;
-  const albumTop = isLandscape ? height * 0.17 : height * 0.22;
+  const albumTop = isLandscape ? height * 0.15 : height * 0.23;
 
   const coverLeft = discCenterX - coverSize / 2;
   const coverTop = discCenterY - coverSize / 2;
@@ -1848,17 +1848,17 @@ function getStyles(layout: PlayerLayout) {
   const mainCoverSize = layout.isLandscape ? Math.min(layout.screenHeight * 0.36, 230) : Math.min(layout.screenWidth * 0.48, 210);
   const sideCoverSize = mainCoverSize * 0.67;
   const chassisLeft = layout.isLandscape ? 62 : 34;
-  const chassisTop = layout.isLandscape ? 58 : 82;
+  const chassisTop = layout.isLandscape ? 58 : 92;
   const chassisRight = layout.isLandscape ? 38 : 18;
   const chassisBottom = Math.min(
     layout.screenHeight - 34,
-    Math.max(layout.albumTop + layout.albumSize + 60, layout.discTop + layout.discSize + 62)
+    Math.max(layout.albumTop + layout.albumSize + 52, layout.discTop + layout.discSize + 56)
   );
   const chassisWidth = layout.screenWidth - chassisLeft - chassisRight;
   const chassisHeight = chassisBottom - chassisTop;
   const chassisRadius = layout.isLandscape ? 34 : 28;
   const albumRecessInset = layout.albumSize * 0.16;
-  const platterInset = layout.discSize * 0.065;
+  const platterInset = layout.discSize * 0.075;
   const faderHeight = layout.isLandscape ? 120 : 110;
   const controlGap = layout.isLandscape ? 22 : 16;
   const faderTop = chassisTop + (layout.isLandscape ? 34 : 28);
