@@ -134,11 +134,11 @@ function getCoverFlowAccent(id: string) {
 function getLayout(width: number, height: number) {
   const isLandscape = width > height;
   const shortSide = Math.min(width, height);
-  const discSize = isLandscape ? shortSide * 0.78 : width * 0.78;
-  const albumSize = isLandscape ? discSize * 0.72 : width * 0.38;
+  const discSize = isLandscape ? shortSide * 0.68 : width * 0.68;
+  const albumSize = isLandscape ? discSize * 0.64 : width * 0.33;
   const coverSize = discSize * 1.12;
 
-  const discCenterX = isLandscape ? width * 0.73 : width * 0.66;
+  const discCenterX = isLandscape ? width * 0.68 : width * 0.56;
   const discCenterY = isLandscape ? height * 0.52 : height * 0.42;
   const discLeft = discCenterX - discSize / 2;
   const discTop = discCenterY - discSize / 2;
@@ -1820,6 +1820,10 @@ export default function VinylPlayer() {
           </Animated.View>
         </GestureDetector>
 
+        <View style={styles.armBase} pointerEvents="none">
+          <View style={styles.armBaseInner} />
+        </View>
+
         <Animated.View style={[styles.armPivot, armAnimatedStyle]} pointerEvents="none">
           <View style={styles.armShaft} />
           <View style={styles.armHead}>
@@ -1843,26 +1847,29 @@ function getStyles(layout: PlayerLayout) {
   const crateBoxWidth = layout.isLandscape ? Math.min((layout.screenWidth - 92) / 3, 220) : (layout.screenWidth - 52) / 2;
   const mainCoverSize = layout.isLandscape ? Math.min(layout.screenHeight * 0.36, 230) : Math.min(layout.screenWidth * 0.48, 210);
   const sideCoverSize = mainCoverSize * 0.67;
-  const chassisLeft = layout.isLandscape ? Math.max(34, layout.albumLeft - 52) : Math.max(18, layout.albumLeft - 28);
+  const chassisLeft = layout.isLandscape ? Math.max(44, layout.albumLeft - 38) : Math.max(22, layout.albumLeft - 20);
   const chassisTop = layout.isLandscape
-    ? Math.max(38, Math.min(layout.armPivotY - 24, layout.discTop - 48))
-    : Math.max(52, layout.discTop - 38);
-  const chassisRight = layout.isLandscape ? 8 : 0;
+    ? Math.max(48, Math.min(layout.armPivotY - 12, layout.discTop - 34))
+    : Math.max(64, layout.discTop - 26);
+  const chassisRight = layout.isLandscape ? 28 : 16;
   const chassisBottom = Math.min(
-    layout.screenHeight - 28,
-    Math.max(layout.albumTop + layout.albumSize + 70, layout.discTop + layout.discSize + 66)
+    layout.screenHeight - 36,
+    Math.max(layout.albumTop + layout.albumSize + 54, layout.discTop + layout.discSize + 48)
   );
   const chassisWidth = layout.screenWidth - chassisLeft - chassisRight;
   const chassisHeight = chassisBottom - chassisTop;
   const chassisRadius = layout.isLandscape ? 34 : 28;
-  const albumRecessInset = layout.albumSize * 0.065;
-  const platterInset = layout.discSize * 0.07;
+  const albumRecessInset = layout.albumSize * 0.075;
+  const platterInset = layout.discSize * 0.09;
   const faderHeight = layout.isLandscape ? 126 : 118;
-  const faderLeft = chassisLeft + (layout.isLandscape ? 28 : 18);
+  const controlGap = layout.isLandscape ? 18 : 14;
   const faderTop = chassisTop + (layout.isLandscape ? 30 : 22);
-  const toggleSize = layout.isLandscape ? 74 : 66;
-  const toggleLeft = chassisLeft + chassisWidth - toggleSize - (layout.isLandscape ? 34 : 22);
-  const toggleTop = chassisTop + (layout.isLandscape ? 32 : 24);
+  const toggleSize = layout.isLandscape ? 68 : 62;
+  const controlClusterRight = layout.isLandscape ? 32 : 22;
+  const faderWidth = 62;
+  const faderLeft = chassisLeft + chassisWidth - controlClusterRight - toggleSize - controlGap - faderWidth;
+  const toggleLeft = faderLeft + faderWidth + controlGap;
+  const toggleTop = faderTop + 18;
 
   return StyleSheet.create({
     loginContainer: {
@@ -1953,12 +1960,12 @@ function getStyles(layout: PlayerLayout) {
       height: layout.albumSize + albumRecessInset * 2,
       borderRadius: 12,
       transform: [{ rotate: layout.isLandscape ? '-3deg' : '-2deg' }],
-      backgroundColor: 'rgba(9,11,13,0.64)',
+      backgroundColor: 'rgba(5,6,7,0.82)',
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.10)',
+      borderColor: 'rgba(255,255,255,0.085)',
       overflow: 'hidden',
       boxShadow:
-        'inset 0px 11px 22px rgba(0,0,0,0.66), inset 0px -1px 0px rgba(255,255,255,0.10), 0px 2px 4px rgba(255,255,255,0.035)',
+        'inset 0px 18px 30px rgba(0,0,0,0.82), inset 0px -2px 0px rgba(255,255,255,0.12), inset 8px 0px 18px rgba(0,0,0,0.38), 0px 2px 5px rgba(255,255,255,0.035)',
     },
     albumRecessFloor: {
       position: 'absolute',
@@ -1967,17 +1974,18 @@ function getStyles(layout: PlayerLayout) {
       top: 10,
       bottom: 10,
       borderRadius: 8,
-      backgroundColor: 'rgba(21,23,25,0.82)',
+      backgroundColor: 'rgba(12,14,16,0.92)',
       borderWidth: 1,
-      borderColor: 'rgba(0,0,0,0.38)',
+      borderColor: 'rgba(0,0,0,0.58)',
+      boxShadow: 'inset 0px 10px 18px rgba(0,0,0,0.58)',
     },
     albumRecessHighlight: {
       position: 'absolute',
-      left: 12,
-      right: 12,
-      top: 8,
+      left: 10,
+      right: 10,
+      top: 7,
       height: 1,
-      backgroundColor: 'rgba(255,255,255,0.14)',
+      backgroundColor: 'rgba(255,255,255,0.22)',
     },
     platterRecess: {
       position: 'absolute',
@@ -1986,29 +1994,30 @@ function getStyles(layout: PlayerLayout) {
       width: layout.discSize + platterInset * 2,
       height: layout.discSize + platterInset * 2,
       borderRadius: (layout.discSize + platterInset * 2) / 2,
-      backgroundColor: 'rgba(10,11,12,0.74)',
+      backgroundColor: 'rgba(4,5,6,0.84)',
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.11)',
+      borderColor: 'rgba(255,255,255,0.085)',
       alignItems: 'center',
       justifyContent: 'center',
       boxShadow:
-        'inset 0px 16px 34px rgba(0,0,0,0.72), inset 0px -2px 0px rgba(255,255,255,0.11), 0px 1px 0px rgba(255,255,255,0.07)',
+        'inset 0px 22px 44px rgba(0,0,0,0.84), inset 0px -2px 0px rgba(255,255,255,0.13), 0px 1px 0px rgba(255,255,255,0.08)',
     },
     platterInnerShadow: {
       position: 'absolute',
       width: layout.discSize * 1.02,
       height: layout.discSize * 1.02,
       borderRadius: layout.discSize * 0.51,
-      backgroundColor: 'rgba(0,0,0,0.26)',
-      boxShadow: 'inset 0px 0px 44px rgba(0,0,0,0.72)',
+      backgroundColor: 'rgba(0,0,0,0.36)',
+      boxShadow: 'inset 0px 0px 56px rgba(0,0,0,0.86)',
     },
     platterMetalRing: {
-      width: layout.discSize * 0.92,
-      height: layout.discSize * 0.92,
-      borderRadius: layout.discSize * 0.46,
+      width: layout.discSize * 1.01,
+      height: layout.discSize * 1.01,
+      borderRadius: layout.discSize * 0.505,
       borderWidth: 1,
-      borderColor: 'rgba(226,226,218,0.12)',
-      backgroundColor: 'rgba(92,95,96,0.08)',
+      borderColor: 'rgba(226,226,218,0.18)',
+      backgroundColor: 'rgba(125,128,126,0.08)',
+      boxShadow: 'inset 0px 1px 0px rgba(255,255,255,0.14)',
     },
     platterCenterDimple: {
       position: 'absolute',
@@ -2926,6 +2935,31 @@ function getStyles(layout: PlayerLayout) {
       zIndex: 30,
       backgroundColor: 'rgba(255,255,255,0)',
     },
+    armBase: {
+      position: 'absolute',
+      left: layout.armPivotX - 30,
+      top: layout.armPivotY - 30,
+      width: 74,
+      height: 74,
+      borderRadius: 37,
+      zIndex: 9,
+      backgroundColor: '#4b4f50',
+      borderWidth: 1,
+      borderColor: 'rgba(235,236,230,0.18)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      boxShadow:
+        '0px 8px 18px rgba(0,0,0,0.46), inset 0px 1px 0px rgba(255,255,255,0.24), inset 0px -10px 18px rgba(0,0,0,0.30)',
+    },
+    armBaseInner: {
+      width: 42,
+      height: 42,
+      borderRadius: 21,
+      backgroundColor: '#2d3032',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.14)',
+      boxShadow: 'inset 0px 5px 12px rgba(0,0,0,0.50), 0px 1px 0px rgba(255,255,255,0.12)',
+    },
     armPivot: {
       position: 'absolute',
       left: layout.armPivotX,
@@ -2942,8 +2976,10 @@ function getStyles(layout: PlayerLayout) {
       width: ARM_WIDTH,
       height: layout.armLength,
       borderRadius: ARM_WIDTH / 2,
-      backgroundColor: '#d8d8dc',
-      boxShadow: '0px 2px 6px rgba(0,0,0,0.6)',
+      backgroundColor: '#8f9696',
+      borderWidth: 1,
+      borderColor: 'rgba(235,236,230,0.22)',
+      boxShadow: '0px 3px 7px rgba(0,0,0,0.58), inset 0px 1px 0px rgba(255,255,255,0.28)',
     },
     armHead: {
       position: 'absolute',
@@ -2952,14 +2988,17 @@ function getStyles(layout: PlayerLayout) {
       width: ARM_WIDTH + 12,
       height: 34,
       borderRadius: 5,
-      backgroundColor: '#3a3a40',
+      backgroundColor: '#25282b',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.12)',
       alignItems: 'center',
       justifyContent: 'flex-end',
+      boxShadow: '0px 4px 8px rgba(0,0,0,0.44), inset 0px 1px 0px rgba(255,255,255,0.10)',
     },
     armNeedle: {
       width: 3,
       height: 10,
-      backgroundColor: '#bbb',
+      backgroundColor: '#9ea3a3',
       marginBottom: -6,
     },
     cover: {
@@ -2969,7 +3008,7 @@ function getStyles(layout: PlayerLayout) {
       width: layout.coverSize,
       height: layout.coverSize,
       borderRadius: layout.coverSize / 2,
-      zIndex: 11,
+      zIndex: 70,
     },
     coverGlass: {
       width: layout.coverSize,
