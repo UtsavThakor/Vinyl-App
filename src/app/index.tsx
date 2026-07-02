@@ -139,12 +139,12 @@ function getLayout(width: number, height: number) {
   const coverSize = discSize * 1;
 
   const discCenterX = isLandscape ? width * 0.68 : width * 0.66;
-  const discCenterY = isLandscape ? height * 0.55 : height * 0.47;
+  const discCenterY = isLandscape ? height * 0.52 : height * 0.47;
   const discLeft = discCenterX - discSize / 2;
   const discTop = discCenterY - discSize / 2;
 
-  const albumLeft = isLandscape ? width * 0.19 : width * 0.15;
-  const albumTop = isLandscape ? height * 0.34 : height * 0.33;
+  const albumLeft = isLandscape ? width * 0.17 : width * 0.15;
+  const albumTop = isLandscape ? height * 0.36 : height * 0.33;
 
   const coverLeft = discCenterX - coverSize / 2;
   const coverTop = discCenterY - coverSize / 2;
