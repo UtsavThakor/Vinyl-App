@@ -134,16 +134,16 @@ function getCoverFlowAccent(id: string) {
 function getLayout(width: number, height: number) {
   const isLandscape = width > height;
   const shortSide = Math.min(width, height);
-  const discSize = isLandscape ? shortSide * 0.48 : width * 0.52;
-  const albumSize = isLandscape ? shortSide * 0.24 : width * 0.27;
+  const discSize = isLandscape ? shortSide * 0.78 : width * 0.78;
+  const albumSize = isLandscape ? discSize * 0.72 : width * 0.38;
   const coverSize = discSize * 1.12;
 
-  const discCenterX = isLandscape ? width * 0.58 : width * 0.56;
-  const discCenterY = isLandscape ? height * 0.66 : height * 0.64;
+  const discCenterX = isLandscape ? width * 0.73 : width * 0.66;
+  const discCenterY = isLandscape ? height * 0.58 : height * 0.5;
   const discLeft = discCenterX - discSize / 2;
   const discTop = discCenterY - discSize / 2;
 
-  const albumLeft = discCenterX - albumSize / 2;
+  const albumLeft = isLandscape ? width * 0.11 : width * 0.13;
   const albumTop = isLandscape ? height * 0.15 : height * 0.23;
 
   const coverLeft = discCenterX - coverSize / 2;
