@@ -265,6 +265,7 @@ const AnimatedGradient = Animated.createAnimatedComponent(LinearGradient);
 export default function VinylPlayer() {
   const { width, height } = useWindowDimensions();
   const layout = getLayout(width, height);
+  const faderHeight = layout.isLandscape ? 120 : 110;
   const styles = getStyles(layout);
 
   const { playManualRecordChange } = useVinylSfx();
@@ -305,6 +306,11 @@ export default function VinylPlayer() {
 
   const [bottomGrad, setBottomGrad] = useState<GradientColors>(FALLBACK_GRADIENT);
   const [topGrad, setTopGrad] = useState<GradientColors>(FALLBACK_GRADIENT);
+
+  const [volumePercent, setVolumePercent] = useState(50);
+
+  const faderPosition = useSharedValue(50);
+  const lastVolumeUpdate = useRef(0);
 
   const gradFade = useSharedValue(1);
   const insertProgress = useSharedValue(0);
@@ -541,6 +547,11 @@ export default function VinylPlayer() {
 
       if (res.status === 200) {
         const data = await res.json();
+
+        if (typeof data?.device?.volume_percent === 'number') {
+          setVolumePercent(data.device.volume_percent);
+          faderPosition.value = data.device.volume_percent;
+        }
 
         durationSv.value = data?.item?.duration_ms || 0;
 
@@ -1023,6 +1034,41 @@ export default function VinylPlayer() {
     [fetchNowPlaying, getValidAccessToken]
   );
 
+  const sendVolume = useCallback(
+    async (volume: number) => {
+      const accessToken = await getValidAccessToken();
+
+      if (!accessToken) return;
+
+      const clamped = Math.max(0, Math.min(100, Math.round(volume)));
+
+      try {
+        await fetch(`https://api.spotify.com/v1/me/player/volume?volume_percent=${clamped}`, {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+      } catch (e) {
+        console.log(`Volume error:`, e);
+      }
+    },
+    [getValidAccessToken]
+  );
+
+  const updateVolumeLive = useCallback (
+    (volume: number) => {
+      const now = Date.now();
+
+      if (now - lastVolumeUpdate.current < 250) return;
+
+      lastVolumeUpdate.current = now;
+
+      sendVolume(volume);
+    },
+    [sendVolume]
+  );
+
   const handleManualNext = useCallback(async () => {
     await playManualRecordChange();
     await sendCommand('POST', 'next');
@@ -1158,6 +1204,18 @@ export default function VinylPlayer() {
     transform: [{ scale: drawerKnobScale.value }],
   }));
 
+  const faderCapStyle = useAnimatedStyle(() => {
+    const travel = faderHeight - 36;
+
+    const top = 
+      18 + 
+      ((100 - faderPosition.value) / 100) * travel;
+
+    return {
+      top,
+    };
+  });
+
   const discCx = layout.discLeft + layout.discSize / 2;
   const discCy = layout.discTop + layout.discSize / 2;
 
@@ -1256,6 +1314,24 @@ export default function VinylPlayer() {
 
   const discGesture = Gesture.Exclusive(scrubGesture, swipeGesture, tapGesture);
 
+  const volumeGesture = Gesture.Pan()
+    .onUpdate((e) => {
+      const travel = faderHeight - 36;
+
+      let y = e.y;
+
+      y = Math.max(18, Math.min(travel + 18, y));
+
+      const percent = Math.round(100 - ((y - 18) / travel) * 100);
+      
+      faderPosition.value = percent;
+      runOnJS(setVolumePercent)(percent);
+      runOnJS(updateVolumeLive)(percent);
+    })
+    .onEnd(() => {
+      runOnJS(sendVolume)(faderPosition.value);
+    });
+
   const markRepeatSuppression = () => {
     suppressRepeatSyncUntilRef.current = Date.now() + 2500;
   };
@@ -1339,7 +1415,7 @@ export default function VinylPlayer() {
         <LinearGradient colors={bottomGrad} style={StyleSheet.absoluteFill} />
         <AnimatedGradient colors={topGrad} style={[StyleSheet.absoluteFill, topGradStyle]} />
 
-        <View style={styles.hardwareLayer} pointerEvents="none">
+        <View style={styles.hardwareLayer} pointerEvents="box-none">
           <LinearGradient
             colors={['rgba(118,121,124,0.96)', 'rgba(44,47,50,0.98)', 'rgba(22,24,27,0.99)']}
             start={{ x: 0.1, y: 0 }}
@@ -1362,32 +1438,43 @@ export default function VinylPlayer() {
             <View style={styles.platterCenterDimple} />
           </View>
 
-          <View style={styles.faderAssembly}>
-            <Text style={styles.faderLabel}>VOLUME</Text>
-            <View style={styles.faderSlot}>
-              {[...Array(9)].map((_, index) => (
-                <View
-                  key={index}
-                  style={[
-                    styles.faderTick,
-                    {
-                      top: 9 + index * (layout.isLandscape ? 12 : 11),
-                      width: index % 2 === 0 ? 14 : 8,
-                    },
-                  ]}
-                />
-              ))}
-              <View style={styles.faderRail} />
-              <LinearGradient
-                colors={['#d8d9d6', '#8c8f8f', '#3f4245']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.faderCap}
-              >
-                <View style={styles.faderCapGroove} />
-              </LinearGradient>
+          <GestureDetector gesture={volumeGesture}>
+            <View style={styles.faderAssembly}>
+              <Text style={styles.faderLabel}>VOLUME</Text>
+              <View style={styles.faderSlot}>
+                {[...Array(9)].map((_, index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.faderTick,
+                      {
+                        top: 9 + index * (layout.isLandscape ? 12 : 11),
+                        width: index % 2 === 0 ? 14 : 8,
+                      },
+                    ]}
+                  />
+                ))}
+                <View style={styles.faderRail} />
+
+                <Animated.View style={[styles.faderCap, faderCapStyle]}>
+                  <LinearGradient
+                    colors={['#d8d9d6', '#8c8f8f', '#3f4245']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      borderRadius: 5,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <View style={styles.faderCapGroove} />
+                  </LinearGradient>
+                </Animated.View>
+              </View>
             </View>
-          </View>
+          </GestureDetector>
 
           <View style={styles.shuffleAssembly}>
             <View style={styles.togglePlate}>
@@ -2070,14 +2157,17 @@ function getStyles(layout: PlayerLayout) {
     },
     faderCap: {
       position: 'absolute',
-      top: faderHeight * 0.46,
+
       width: 34,
       height: 18,
+
       borderRadius: 5,
       borderWidth: 1,
       borderColor: 'rgba(255,255,255,0.28)',
+
       alignItems: 'center',
       justifyContent: 'center',
+
       boxShadow: '0px 4px 9px rgba(0,0,0,0.55), inset 0px 1px 0px rgba(255,255,255,0.46)',
     },
     faderCapGroove: {
